@@ -1,11 +1,8 @@
-"""Root entrypoint for v331.
-Run this file to launch the latest dashboard without browsing subfolders.
+"""Notebook-safe entrypoint for v331.
+Avoids __file__/runpy so it can be pasted into Colab cells directly.
 """
-from pathlib import Path
-import runpy
+import importlib
 
-ROOT = Path(__file__).resolve().parent
-TARGET = ROOT / "youtube" / "v1_yt_downloader_v331.py"
-if not TARGET.exists():
-    raise FileNotFoundError(f"Missing launcher target: {TARGET}")
-runpy.run_path(str(TARGET), run_name="__main__")
+from youtube import v1_yt_downloader_v331 as _v331
+
+importlib.reload(_v331)

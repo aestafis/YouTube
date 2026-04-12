@@ -102,10 +102,11 @@ print('[OK] all deps ready')
 class Cfg:
     COOKIE_DIR = '/content/drive/MyDrive/YouTube_Cookies'
     COOKIE   = os.path.join(COOKIE_DIR,'youtube_cookies.txt')
+    META_DIR = os.path.join(COOKIE_DIR,'metadata')
     SAVE_DIR = '/content/drive/MyDrive/YouTube_Downloads'
     TMP_DIR  = '/content/local_temp'
-    STATE    = '/content/drive/MyDrive/.yt_state.json'
-    INDEX    = '/content/drive/MyDrive/.yt_index.json'
+    STATE    = os.path.join(META_DIR,'yt_state.json')
+    INDEX    = os.path.join(META_DIR,'yt_index.json')
     FRAGS    = 16
     DEDUP    = 0.82
     MAX_MB   = 0
@@ -577,6 +578,14 @@ def _mount_drive():
         _gdrive.mount('/content/drive',force_remount=False)
         return os.path.ismount('/content/drive'),'mounted'
     except Exception as e: return False,str(e)
+
+def _colab_preflight():
+    if _IN_COLAB:
+        ok,_=_mount_drive()
+        if not ok: return
+    for d in (Cfg.COOKIE_DIR,Cfg.META_DIR,Cfg.SAVE_DIR,Cfg.TMP_DIR):
+        try: os.makedirs(Cfg.fix(d),exist_ok=True)
+        except Exception: pass
 
 def _looks_like_dir_path(path):
     p=(path or '').strip()
@@ -1571,26 +1580,26 @@ class Dashboard:
         w_save=W.Text(
             value=Cfg.SAVE_DIR,description='保存路径:',
             style={'description_width':'52px'},layout=L(width='97%'),
-            tooltip='保存目录 — auto-created if not exist')
+            tooltip='保存目录（不存在会自动创建）')
         w_maxmb=W.IntSlider(
             value=0,min=0,max=10000,step=100,
             description='大小上限:',
             style={'description_width':'52px'},
             layout=L(width='52%'),continuous_update=False,
-            tooltip='Max file size per video (MB), 0=unlimited')
+            tooltip='单视频最大体积（MB），0=不限')
         w_maxmb_label=W.HTML(
             value='<span style="font-size:11px;color:#4caf50;'
-                  'margin-left:6px">unlimited</span>')
+                  'margin-left:6px">不限</span>')
         def _upd_label(c):
             v=c['new']
             if v==0:
                 w_maxmb_label.value=(
                     '<span style="font-size:11px;color:#4caf50;'
-                    'margin-left:6px">unlimited</span>')
+                    'margin-left:6px">不限</span>')
             else:
                 w_maxmb_label.value=(
                     f'<span style="font-size:11px;color:#ff9800;'
-                    f'margin-left:6px">max {v} MB</span>')
+                    f'margin-left:6px">上限 {v} MB</span>')
         w_maxmb.observe(_upd_label,names='value')
 
         w_subtitle=W.Checkbox(
@@ -2067,12 +2076,14 @@ class Dashboard:
         try: display(HTML(_DRAG_JS))
         except: pass
         self._log.write(
-            'v331 已就绪 — Drive 将在首次搜索/下载时自动挂载')
+            'v331 已就绪 — 启动时已检查 Drive 挂载')
         self._log.write(
             f'Cookie默认目录: {Cfg.COOKIE_DIR}（不存在会自动创建）')
         self._log.write(
+            f'状态文件目录: {Cfg.META_DIR}')
+        self._log.write(
             f'FRAGS={Cfg.FRAGS}  chunk={Cfg.HTTP_CHUNK_MB}MB  '
-            f'maxsize={"unlimited" if Cfg.MAX_MB==0 else str(Cfg.MAX_MB)+"MB"}')
+            f'大小上限={"不限" if Cfg.MAX_MB==0 else str(Cfg.MAX_MB)+"MB"}')
         self._status.idle()
         self._flush_queue()
 
@@ -2088,6 +2099,7 @@ try:
 except Exception:
     pass
 
+_colab_preflight()
 _INSTANCE=Dashboard()
 _INSTANCE.launch()
 print('v331 已就绪')
