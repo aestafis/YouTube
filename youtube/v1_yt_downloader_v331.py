@@ -1,10 +1,11 @@
 # ══════════════════════════════════════════════════════════════
 # BLOCK 0 ── 依赖
 # ══════════════════════════════════════════════════════════════
-import subprocess, sys, os, re, json, time, html
+import subprocess, sys, os, re, json, time
 import shutil, traceback, difflib, threading
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FT
 from datetime import datetime
+from html import escape
 
 def _pip(*pkgs):
     for p in pkgs:
@@ -15,6 +16,7 @@ def _pip(*pkgs):
 def _apt(*pkgs):
     apt = shutil.which('apt-get')
     if not apt:
+        print('[WARN] apt-get unavailable; skipping apt install')
         return False
     ok = True
     for p in pkgs:
@@ -1115,7 +1117,7 @@ def _st_span(st=None,reason=''):
     if not st:
         return '<span style="display:inline-block;width:20px;height:20px"></span>'
     color,icon=_ST_CFG.get(st,('#888','?'))
-    tip=(f' title="{html.escape(str(reason),quote=True)}"'
+    tip=(f' title="{escape(str(reason),quote=True)}"'
          if reason else '')
     return (f'<span style="display:inline-block;width:20px;height:20px;'
             f'line-height:20px;text-align:center;border-radius:3px;'
@@ -1125,6 +1127,9 @@ def _st_span(st=None,reason=''):
 # A-3/A-7: 去掉发布时间列，透明背景
 # 列: 28px 1fr 22px 72px 54px
 _GRID='28px 1fr 22px 72px 54px'
+_UI_FONT_FAMILY=('-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,'
+                 '"Noto Sans CJK SC","Noto Sans SC","PingFang SC",'
+                 '"Microsoft YaHei",sans-serif')
 
 def _row_html(i, r, st=None, reason=''):
     title_raw=str(r.get('title','') or '')
@@ -1135,15 +1140,15 @@ def _row_html(i, r, st=None, reason=''):
     if not re.match(r'^https?://',url_raw,re.I):
         url_raw='#'
     views_raw=_fmt_views(r.get('view_count'))
-    title=html.escape(title_raw,quote=True)
-    ts   =html.escape(ts_raw,quote=True)
-    ch   =html.escape(ch_raw,quote=True)
-    dur  =html.escape(dur_raw,quote=True)
-    url  =html.escape(url_raw,quote=True)
+    title=escape(title_raw,quote=True)
+    ts   =escape(ts_raw,quote=True)
+    ch   =escape(ch_raw,quote=True)
+    dur  =escape(dur_raw,quote=True)
+    url  =escape(url_raw,quote=True)
     # A-7: 透明背景
     bg='rgba(255,255,255,0.03)' if i%2==0 else 'transparent'
     vh=(f'<span style="font-size:12px;color:#ccc">'
-        f'{html.escape(str(views_raw),quote=True)}</span>'
+        f'{escape(str(views_raw),quote=True)}</span>'
         if views_raw else
         '<span style="color:#555;font-size:11px">-</span>')
     st_s=_st_span(st,reason)
@@ -1151,9 +1156,7 @@ def _row_html(i, r, st=None, reason=''):
         f'<div style="display:grid;grid-template-columns:{_GRID};'
         f'gap:0 6px;align-items:center;min-height:52px;'
         f'padding:3px 6px;background:{bg};'
-        f'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",'
-        f'Roboto,"Noto Sans CJK SC","Noto Sans SC","PingFang SC",'
-        f'"Microsoft YaHei",sans-serif;'
+        f'font-family:{_UI_FONT_FAMILY};'
         f'border-bottom:1px solid rgba(255,255,255,0.06)">'
         f'<div style="text-align:center;color:#666;font-size:11px">{i+1}</div>'
         f'<div style="min-width:0;overflow:hidden">'
