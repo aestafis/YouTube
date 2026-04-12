@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════════════════════
 # BLOCK 0 ── 依赖
 # ══════════════════════════════════════════════════════════════
-import subprocess, sys, os, re, json, time
+import subprocess, sys, os, re, json, time, html
 import shutil, traceback, difflib, threading
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FT
 from datetime import datetime
@@ -13,9 +13,17 @@ def _pip(*pkgs):
                        check=False, capture_output=True)
 
 def _apt(*pkgs):
+    apt = shutil.which('apt-get')
+    if not apt:
+        return False
+    ok = True
     for p in pkgs:
-        subprocess.run(['apt-get','install','-y','-q',p],
-                       check=False, capture_output=True)
+        try:
+            subprocess.run([apt,'install','-y','-q',p],
+                           check=False, capture_output=True)
+        except Exception:
+            ok = False
+    return ok
 
 try:
     import yt_dlp
@@ -58,8 +66,14 @@ def _ensure_deno():
     except: pass
 _ensure_deno()
 
-try:    subprocess.run(['ffmpeg','-version'],capture_output=True,timeout=5)
-except: _apt('ffmpeg')
+try:
+    _ff_ok = subprocess.run(
+        ['ffmpeg','-version'], capture_output=True, timeout=5
+    ).returncode == 0
+except Exception:
+    _ff_ok = False
+if not _ff_ok and not _apt('ffmpeg'):
+    print('[WARN] ffmpeg unavailable; continuing')
 
 try:
     import ipywidgets as W
@@ -1101,7 +1115,8 @@ def _st_span(st=None,reason=''):
     if not st:
         return '<span style="display:inline-block;width:20px;height:20px"></span>'
     color,icon=_ST_CFG.get(st,('#888','?'))
-    tip=f' title="{reason}"' if reason else ''
+    tip=(f' title="{html.escape(str(reason),quote=True)}"'
+         if reason else '')
     return (f'<span style="display:inline-block;width:20px;height:20px;'
             f'line-height:20px;text-align:center;border-radius:3px;'
             f'background:{color};color:#fff;font-size:11px;'
@@ -1112,22 +1127,33 @@ def _st_span(st=None,reason=''):
 _GRID='28px 1fr 22px 72px 54px'
 
 def _row_html(i, r, st=None, reason=''):
-    title=r.get('title','')
-    ts   =_trim(title,34)
-    ch   =_trim(r.get('channel') or 'N/A',24)
-    dur  =r.get('duration','-')
-    url  =r.get('url','#')
-    views=_fmt_views(r.get('view_count'))
+    title_raw=str(r.get('title','') or '')
+    ts_raw   =_trim(title_raw,34)
+    ch_raw   =_trim(r.get('channel') or 'N/A',24)
+    dur_raw  =str(r.get('duration','-') or '-')
+    url_raw  =str(r.get('url','#') or '#')
+    if not re.match(r'^https?://',url_raw,re.I):
+        url_raw='#'
+    views_raw=_fmt_views(r.get('view_count'))
+    title=html.escape(title_raw,quote=True)
+    ts   =html.escape(ts_raw,quote=True)
+    ch   =html.escape(ch_raw,quote=True)
+    dur  =html.escape(dur_raw,quote=True)
+    url  =html.escape(url_raw,quote=True)
     # A-7: 透明背景
     bg='rgba(255,255,255,0.03)' if i%2==0 else 'transparent'
-    vh=(f'<span style="font-size:12px;color:#ccc">{views}</span>'
-        if views else
+    vh=(f'<span style="font-size:12px;color:#ccc">'
+        f'{html.escape(str(views_raw),quote=True)}</span>'
+        if views_raw else
         '<span style="color:#555;font-size:11px">-</span>')
     st_s=_st_span(st,reason)
     return (
         f'<div style="display:grid;grid-template-columns:{_GRID};'
         f'gap:0 6px;align-items:center;min-height:52px;'
         f'padding:3px 6px;background:{bg};'
+        f'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",'
+        f'Roboto,"Noto Sans CJK SC","Noto Sans SC","PingFang SC",'
+        f'"Microsoft YaHei",sans-serif;'
         f'border-bottom:1px solid rgba(255,255,255,0.06)">'
         f'<div style="text-align:center;color:#666;font-size:11px">{i+1}</div>'
         f'<div style="min-width:0;overflow:hidden">'
