@@ -592,6 +592,7 @@ def _resolve_cookie_file(path, create_dir=False):
     use_dir = os.path.isdir(p) or _looks_like_dir_path(p)
     if use_dir:
         cdir=p.rstrip('/')
+        cdir_real=os.path.realpath(cdir)
         if create_dir:
             os.makedirs(cdir,exist_ok=True)
         elif not os.path.isdir(cdir):
@@ -601,7 +602,11 @@ def _resolve_cookie_file(path, create_dir=False):
         files=[]; seen=set()
         for pat in pats:
             for fp in glob.glob(os.path.join(cdir,pat)):
-                if os.path.isfile(fp) and fp not in seen:
+                if not os.path.isfile(fp): continue
+                if os.path.islink(fp): continue
+                real_fp=os.path.realpath(fp)
+                if not real_fp.startswith(cdir_real+os.sep): continue
+                if fp not in seen:
                     files.append(fp); seen.add(fp)
         def _mtime(fp):
             try: return os.path.getmtime(fp)
