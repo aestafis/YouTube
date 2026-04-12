@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════════════════════
 # BLOCK 0 ── 依赖
 # ══════════════════════════════════════════════════════════════
-import subprocess, sys, os, re, json, time
+import subprocess, sys, os, re, json, time, glob
 import shutil, traceback, difflib, threading
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FT
 from datetime import datetime
@@ -100,7 +100,8 @@ print('[OK] all deps ready')
 # BLOCK 1 ── 配置
 # ══════════════════════════════════════════════════════════════
 class Cfg:
-    COOKIE   = '/content/drive/MyDrive/youtube_cookies.txt'
+    COOKIE_DIR = '/content/drive/MyDrive/YouTube_Cookies'
+    COOKIE   = '/content/drive/MyDrive/YouTube_Cookies/youtube_cookies.txt'
     SAVE_DIR = '/content/drive/MyDrive/YouTube_Downloads'
     TMP_DIR  = '/content/local_temp'
     STATE    = '/content/drive/MyDrive/.yt_state.json'
@@ -576,6 +577,41 @@ def _mount_drive():
         _gdrive.mount('/content/drive',force_remount=False)
         return os.path.ismount('/content/drive'),'mounted'
     except Exception as e: return False,str(e)
+
+def _looks_like_dir_path(path):
+    p=(path or '').strip()
+    if not p: return False
+    if p.endswith('/'): return True
+    base=os.path.basename(p)
+    return ('.' not in base)
+
+def _resolve_cookie_file(path, create_dir=False):
+    p=Cfg.fix((path or '').strip())
+    if not p: raise CookieError('Cookie 路径为空')
+
+    use_dir = os.path.isdir(p) or _looks_like_dir_path(p)
+    if use_dir:
+        cdir=p.rstrip('/')
+        if create_dir:
+            os.makedirs(cdir,exist_ok=True)
+        elif not os.path.isdir(cdir):
+            raise CookieError(f'目录不存在:{cdir}')
+
+        pats=('youtube_cookies*.txt','*cookie*.txt','*.txt')
+        files=[]; seen=set()
+        for pat in pats:
+            for fp in glob.glob(os.path.join(cdir,pat)):
+                if os.path.isfile(fp) and fp not in seen:
+                    files.append(fp); seen.add(fp)
+        files.sort(key=lambda fp: os.path.getmtime(fp), reverse=True)
+        if not files:
+            raise CookieError(f'目录已创建，请放入 Cookie 文件: {cdir}')
+        return files[0]
+
+    parent=os.path.dirname(p)
+    if create_dir and parent:
+        os.makedirs(parent,exist_ok=True)
+    return p
 
 def _check_cookie(path):
     path = Cfg.fix(path)
@@ -1518,7 +1554,7 @@ class Dashboard:
         w_cookie=W.Text(
             value=Cfg.COOKIE,description='Cookie路径:',
             style={'description_width':'52px'},layout=L(width='97%'),
-            tooltip='YouTube Cookie 文件路径（先上传到云盘）')
+            tooltip='可填文件或文件夹；填文件夹时自动选最新Cookie')
         w_save=W.Text(
             value=Cfg.SAVE_DIR,description='保存路径:',
             style={'description_width':'52px'},layout=L(width='97%'),
@@ -1707,11 +1743,15 @@ class Dashboard:
             self._log.write(f'Drive: {msg}')
             self._status.error(f'Drive 挂载失败: {msg}')
             self._flush_queue(); return
-        try: _check_cookie(cookie)
+        try:
+            cookie_file=_resolve_cookie_file(cookie,create_dir=True)
+            found=_check_cookie(cookie_file)
         except CookieError as e:
             self._log.write(f'Cookie 错误: {e}')
             self._status.error(f'Cookie: {e}')
             self._flush_queue(); return
+        self._log.write(f'Cookie 文件: {cookie_file}')
+        self._log.write(f'Cookie 关键字段: {", ".join(found)}')
 
         itype,idata=_parse_input(query)
         skip_saved=self._w['skip_saved'].value  # 线程外读取
@@ -1739,7 +1779,7 @@ class Dashboard:
                         f'检测到 {len(idata)} 个频道URL，使用第1个')
                     self._status.fetching_channel(idata[0])
                     res,cancelled=_fetch_channel(
-                        idata[0],count,cookie,cancel_ev)
+                        idata[0],count,cookie_file,cancel_ev)
                     if cancelled:
                         self._status.cancelled(); return
                     mode='频道'
@@ -1749,7 +1789,7 @@ class Dashboard:
                     self._log.write(f'关键词: {idata}')
                     url=_build_url(idata,sort)
                     res,skipped=_do_search(
-                        url,count,cookie,self._mode_cfg,cancel_ev,
+                        url,count,cookie_file,self._mode_cfg,cancel_ev,
                         saved_ids=saved if skip_saved else None,
                         skip_saved=skip_saved)
                     mode=self._mode_name
@@ -1757,7 +1797,7 @@ class Dashboard:
                 elif itype=='single_url':
                     self._status.searching(idata)
                     self._log.write(f'读取URL: {_trim(idata,60)}')
-                    item=_fetch_url_info(idata,cookie,cancel_ev)
+                    item=_fetch_url_info(idata,cookie_file,cancel_ev)
                     res=[item] if item else []
                     mode='URL'
 
@@ -1767,14 +1807,14 @@ class Dashboard:
                     def _prog(d,t):
                         self._log.write(f'  {d}/{t}')
                         self._auto_flush()
-                    res=_fetch_multi_urls(idata,cookie,cancel_ev,_prog)
+                    res=_fetch_multi_urls(idata,cookie_file,cancel_ev,_prog)
                     mode=f'{len(res)}个URL'
 
                 elif itype=='channel':
                     self._status.fetching_channel(idata)
                     self._log.write(f'频道: {_trim(idata,60)}')
                     res,cancelled=_fetch_channel(
-                        idata,count,cookie,cancel_ev)
+                        idata,count,cookie_file,cancel_ev)
                     if cancelled:
                         self._status.cancelled(); return
                     mode='频道'
@@ -1877,7 +1917,9 @@ class Dashboard:
                     self._status.error(f'Drive 挂载失败: {msg}')
                     self._auto_flush(); return
                 try:
-                    found=_check_cookie(cookie)
+                    cookie_file=_resolve_cookie_file(cookie,create_dir=True)
+                    found=_check_cookie(cookie_file)
+                    self._log.write(f'Cookie 文件: {cookie_file}')
                     self._log.write(f'Cookie OK: {found}')
                     self._auto_flush()
                 except CookieError as e:
@@ -1894,7 +1936,7 @@ class Dashboard:
                         saved=(self._index.get_all_ids()|
                                self._state.get_dl_set())
                         res,_sk=_do_search(
-                            surl,count,cookie,self._mode_cfg,
+                            surl,count,cookie_file,self._mode_cfg,
                             saved_ids=saved if skip_saved else None,
                             skip_saved=bool(skip_saved))
                         if not res:
@@ -1925,7 +1967,7 @@ class Dashboard:
                 self._auto_flush()
 
                 done,fails,sw,done_ids,tb,elapsed=_do_download(
-                    items,cookie,save,
+                    items,cookie_file,save,
                     stop_ev,pause_ev,
                     self._state,sd,
                     self._log,self._status,
@@ -2013,6 +2055,8 @@ class Dashboard:
         except: pass
         self._log.write(
             'v331 已就绪 — Drive 将在首次搜索/下载时自动挂载')
+        self._log.write(
+            f'Cookie默认目录: {Cfg.COOKIE_DIR}（不存在会自动创建）')
         self._log.write(
             f'FRAGS={Cfg.FRAGS}  chunk={Cfg.HTTP_CHUNK_MB}MB  '
             f'maxsize={"unlimited" if Cfg.MAX_MB==0 else str(Cfg.MAX_MB)+"MB"}')
