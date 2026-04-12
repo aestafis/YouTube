@@ -151,6 +151,7 @@ AD_KW  = re.compile(
 _CHANNEL_RE = re.compile(
     r'youtube\.com/(@[^/?#\s]+|channel/[^/?#\s]+|c/[^/?#\s]+'
     r'|user/[^/?#\s]+|playlist\?list=)',re.I)
+_YT_VIDEO_ID_RE = re.compile(r'^[A-Za-z0-9_-]{11}$')
 
 # 固定模块（中文标签 + 英文搜索词）
 KEYWORD_MODULES = {
@@ -594,6 +595,70 @@ def _looks_like_dir_path(path):
     base=os.path.basename(p)
     return ('.' not in base)
 
+def _cookie_json_to_netscape_txt(cookies):
+    lines=['# Netscape HTTP Cookie File',
+           '# Generated from JSON cookie export']
+    for c in (cookies or []):
+        if not isinstance(c,dict): continue
+        domain=str(c.get('domain','') or '').strip()
+        name  =str(c.get('name','') or '').strip()
+        value =str(c.get('value','') or '').replace('\t',' ').replace('\r','').replace('\n','')
+        if not domain or not name: continue
+        path  =str(c.get('path','/') or '/')
+        secure='TRUE' if bool(c.get('secure')) else 'FALSE'
+        include_sub='TRUE' if (domain.startswith('.')
+                               or not bool(c.get('hostOnly',False))) else 'FALSE'
+        exp=c.get('expirationDate',0)
+        try: exp_i=max(0,int(float(exp)))
+        except Exception: exp_i=0
+        lines.append('\t'.join([
+            domain,include_sub,path,secure,str(exp_i),name,value
+        ]))
+    if len(lines)<=2:
+        raise CookieError('JSON 中没有可用的 Cookie 条目')
+    return '\n'.join(lines)+'\n'
+
+def _normalize_cookie_file(path):
+    p=Cfg.fix(path)
+    if not os.path.isfile(p): return p
+    try:
+        with open(p,encoding='utf-8',errors='ignore') as f:
+            head=f.read(4096).lstrip()
+    except Exception:
+        return p
+
+    is_json = p.lower().endswith('.json') or (
+        head[:1] in ('[','{') and '"domain"' in head and '"name"' in head
+    )
+    if not is_json: return p
+
+    try:
+        with open(p,encoding='utf-8',errors='ignore') as f:
+            raw=json.load(f)
+        if isinstance(raw,dict) and isinstance(raw.get('cookies'),list):
+            cookies=raw['cookies']
+        elif isinstance(raw,list):
+            cookies=raw
+        else:
+            raise CookieError('JSON Cookie 格式不支持')
+
+        base,_=os.path.splitext(p)
+        txt_out=f'{base}_auto_netscape.txt'
+        need_write=True
+        try:
+            need_write=(os.path.getmtime(txt_out) < os.path.getmtime(p))
+        except OSError:
+            need_write=True
+        if need_write:
+            txt=_cookie_json_to_netscape_txt(cookies)
+            with open(txt_out,'w',encoding='utf-8') as f:
+                f.write(txt)
+        return txt_out
+    except CookieError:
+        raise
+    except Exception as e:
+        raise CookieError(f'Cookie JSON 解析失败: {type(e).__name__}')
+
 def _resolve_cookie_file(path, create_dir=False):
     p=Cfg.fix((path or '').strip())
     if not p: raise CookieError('Cookie 路径为空')
@@ -607,12 +672,14 @@ def _resolve_cookie_file(path, create_dir=False):
         elif not os.path.isdir(cdir):
             raise CookieError(f'目录不存在:{cdir}')
 
-        pats=('youtube_cookies*.txt','*cookie*.txt','*.txt')
+        pats=('youtube_cookies*.txt','youtube_cookies*.json',
+              '*cookie*.txt','*cookie*.json','*.txt','*.json')
         files=[]; seen=set()
         for pat in pats:
             for fp in glob.glob(os.path.join(cdir,pat)):
                 if not os.path.isfile(fp): continue
                 if os.path.islink(fp): continue
+                if fp.endswith('_auto_netscape.txt'): continue
                 real_fp=os.path.realpath(fp)
                 try:
                     if os.path.commonpath([cdir_real,real_fp])!=cdir_real:
@@ -628,12 +695,12 @@ def _resolve_cookie_file(path, create_dir=False):
         if not files:
             raise CookieError(
                 f'未找到 Cookie 文件，请在目录中放入 *.txt: {cdir}')
-        return files[0]
+        return _normalize_cookie_file(files[0])
 
     parent=os.path.dirname(p)
     if create_dir and parent:
         os.makedirs(parent,exist_ok=True)
-    return p
+    return _normalize_cookie_file(p)
 
 def _check_cookie(path):
     path = Cfg.fix(path)
@@ -666,6 +733,9 @@ def _channel_url_normalize(url):
         r'/(featured|shorts|streams|community|about|playlists)$','',url)
     return url+'/videos'
 
+def _is_valid_video_id(vid):
+    return bool(_YT_VIDEO_ID_RE.fullmatch((vid or '').strip()))
+
 def _fetch_url_info(url, cookie_path, cancel_ev=None):
     opts={'quiet':True,'no_warnings':True,'skip_download':True,
           'cookiefile':Cfg.fix(cookie_path),
@@ -683,6 +753,7 @@ def _fetch_url_info(url, cookie_path, cancel_ev=None):
             info=fut.result()
         if not info: return None
         vid  =info.get('id','')
+        if not _is_valid_video_id(vid): return None
         title=(info.get('title','') or '').strip() or url
         ds   =int(info.get('duration') or 0)
         dur  =info.get('duration_string','')
@@ -744,7 +815,8 @@ def _fetch_channel(url, count, cookie_path, cancel_ev=None):
     for e in entries:
         if not e or not isinstance(e,dict): continue
         vid=e.get('id',''); title=(e.get('title','') or '').strip()
-        if not vid or not title or vid in seen_ids: continue
+        if (not vid) or (not title) or (vid in seen_ids): continue
+        if not _is_valid_video_id(vid): continue
         seen_ids.add(vid)
         ds=int(e.get('duration') or 0)
         dur=e.get('duration_string','')
@@ -795,7 +867,8 @@ def _filter_entries(entries, count, mode_cfg,
         if len(res)>=count: break
         if not e or not isinstance(e,dict): continue
         vid=e.get('id',''); title=(e.get('title','') or '').strip()
-        if not vid or not title or vid in seen_ids: continue
+        if (not vid) or (not title) or (vid in seen_ids): continue
+        if not _is_valid_video_id(vid): continue
         if skip_saved and saved_ids and vid in saved_ids:
             skipped+=1; continue
         ds=int(e.get('duration') or 0)
@@ -1311,7 +1384,7 @@ class PreviewTable:
         # A-1: description 纯 ASCII
         all_cb=W.Checkbox(
             value=True,description='全选',indent=False,
-            layout=W.Layout(width='48px',min_width='48px'),
+            layout=W.Layout(width='auto',min_width='72px'),
             tooltip='全选 / 取消全选')
         def _toggle_all(c):
             for b in self._boxes: b.value=c['new']
@@ -1321,8 +1394,8 @@ class PreviewTable:
         self._saved_toggled=False
         btn_saved=W.Button(
             description='已存+',
-            layout=W.Layout(width='76px',height='26px'),
-            style={'font_size':'11px','button_color':'#1565c0'},
+            layout=W.Layout(width='auto',min_width='90px',height='30px'),
+            style={'font_size':'12px','button_color':'#1565c0'},
             tooltip='已存+: 勾选所有已存视频\n已存-: 取消所有已存视频勾选')
 
         def _toggle_saved(_):
@@ -1567,7 +1640,7 @@ class Dashboard:
                        ' · 年份自动替换</div>'),
                 W.VBox(mod_rows)
             ],layout=L(padding='4px'))],
-            layout=L(width='100%',margin='2px 0'))
+            layout=L(width='49%',margin='2px 0'))
         try:    acc_mod.titles=('固定模块',)
         except: acc_mod.set_title(0,'固定模块')
         acc_mod.selected_index=None
@@ -1576,7 +1649,7 @@ class Dashboard:
         w_cookie=W.Text(
             value=Cfg.COOKIE,description='Cookie路径:',
             style={'description_width':'52px'},layout=L(width='97%'),
-            tooltip='可填文件或文件夹；填文件夹时自动选最新Cookie')
+            tooltip='可填文件或文件夹；支持 JSON（含粘贴到 txt 的 JSON）自动转换')
         w_save=W.Text(
             value=Cfg.SAVE_DIR,description='保存路径:',
             style={'description_width':'52px'},layout=L(width='97%'),
@@ -1632,7 +1705,7 @@ class Dashboard:
                 W.HBox([w_reset_btn,W.HTML('&nbsp;'),w_reset_idx],
                        layout=L(align_items='center')),
             ],layout=L(padding='6px'))],
-            layout=L(width='100%',margin='2px 0'))
+            layout=L(width='49%',margin='2px 0'))
         try:    acc_set.titles=('设置',)
         except: acc_set.set_title(0,'设置')
         acc_set.selected_index=None
@@ -1733,6 +1806,10 @@ class Dashboard:
             '[>]=下载中&nbsp;[+]=完成&nbsp;[x]=失败'
             '&nbsp;|&nbsp;拖拽复选框可批量勾选'
             '</div>')
+        panel_row=W.HBox(
+            [acc_mod,acc_set],
+            layout=L(width='100%',justify_content='space-between',
+                     align_items='flex-start'))
 
         return W.VBox([
             W.HTML('<div style="font-size:15px;font-weight:600;'
@@ -1745,7 +1822,7 @@ class Dashboard:
             _sep('搜索'),
             w_query,
             W.HBox([w_sort,W.HTML('&nbsp;'),w_count]),
-            acc_mod,acc_set,btn_row,note,
+            panel_row,btn_row,note,
             self._status.widget(),
             _sep('预览'),
             w_scroll,log_acc,
