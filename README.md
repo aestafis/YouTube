@@ -1,8 +1,8 @@
 # YouTube
 
 快速入口：
-- `/home/runner/work/YouTube/YouTube/run_v331.py`（不依赖 `__file__`/`runpy` 的入口）
-- 实际主文件：`/home/runner/work/YouTube/YouTube/youtube/v1_yt_downloader_v331.py`（单文件核心逻辑，可直接在 Colab 单元格运行）
+- `run_v331.py`（不依赖 `__file__`/`runpy` 的入口）
+- 实际主文件：`youtube/v1_yt_downloader_v331.py`（单文件核心逻辑，可直接在 Colab 单元格运行）
 
 Cookie 约定：
 - 默认路径：`/content/drive/MyDrive/YouTube_Cookies/youtube_cookies.txt`

@@ -1523,7 +1523,7 @@ class Dashboard:
             style={'description_width':'52px'},
             layout=L(width='98%',height='52px'))
         w_sort=W.Dropdown(
-            options=[(SORT_LABELS[k],k) for k in SORT_OPTS.keys()],
+            options=[(SORT_LABELS.get(k,k),k) for k in SORT_OPTS.keys()],
             value='views',
             description='排序:',
             style={'description_width':'40px'},
