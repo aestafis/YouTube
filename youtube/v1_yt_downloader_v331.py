@@ -101,7 +101,7 @@ print('[OK] all deps ready')
 # ══════════════════════════════════════════════════════════════
 class Cfg:
     COOKIE_DIR = '/content/drive/MyDrive/YouTube_Cookies'
-    COOKIE   = '/content/drive/MyDrive/YouTube_Cookies/youtube_cookies.txt'
+    COOKIE   = os.path.join(COOKIE_DIR,'youtube_cookies.txt')
     SAVE_DIR = '/content/drive/MyDrive/YouTube_Downloads'
     TMP_DIR  = '/content/local_temp'
     STATE    = '/content/drive/MyDrive/.yt_state.json'
@@ -603,7 +603,10 @@ def _resolve_cookie_file(path, create_dir=False):
             for fp in glob.glob(os.path.join(cdir,pat)):
                 if os.path.isfile(fp) and fp not in seen:
                     files.append(fp); seen.add(fp)
-        files.sort(key=lambda fp: os.path.getmtime(fp), reverse=True)
+        def _mtime(fp):
+            try: return os.path.getmtime(fp)
+            except OSError: return -1
+        files.sort(key=_mtime, reverse=True)
         if not files:
             raise CookieError(f'目录已创建，请放入 Cookie 文件: {cdir}')
         return files[0]
