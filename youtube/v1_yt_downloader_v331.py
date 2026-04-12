@@ -605,7 +605,11 @@ def _resolve_cookie_file(path, create_dir=False):
                 if not os.path.isfile(fp): continue
                 if os.path.islink(fp): continue
                 real_fp=os.path.realpath(fp)
-                if not real_fp.startswith(cdir_real+os.sep): continue
+                try:
+                    if os.path.commonpath([cdir_real,real_fp])!=cdir_real:
+                        continue
+                except ValueError:
+                    continue
                 if fp not in seen:
                     files.append(fp); seen.add(fp)
         def _mtime(fp):
@@ -613,7 +617,8 @@ def _resolve_cookie_file(path, create_dir=False):
             except OSError: return -1
         files.sort(key=_mtime, reverse=True)
         if not files:
-            raise CookieError(f'目录已创建，请放入 Cookie 文件: {cdir}')
+            raise CookieError(
+                f'未找到 Cookie 文件，请在目录中放入 *.txt: {cdir}')
         return files[0]
 
     parent=os.path.dirname(p)
@@ -1509,7 +1514,7 @@ class Dashboard:
             style={'description_width':'52px'},
             layout=L(width='98%',height='52px'))
         w_sort=W.Dropdown(
-            options=[('最多播放','views'),('相关性','relevance')],
+            options=[(SORT_LABELS[k],k) for k in SORT_OPTS.keys()],
             value='views',
             description='排序:',
             style={'description_width':'40px'},
