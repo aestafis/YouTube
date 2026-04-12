@@ -601,7 +601,7 @@ def _cookie_json_to_netscape_txt(cookies):
         if not isinstance(c,dict): continue
         domain=str(c.get('domain','') or '').strip()
         name  =str(c.get('name','') or '').strip()
-        value =str(c.get('value','') or '')
+        value =str(c.get('value','') or '').replace('\t',' ').replace('\r','').replace('\n','')
         if not domain or not name: continue
         path  =str(c.get('path','/') or '/')
         secure='TRUE' if bool(c.get('secure')) else 'FALSE'
@@ -642,7 +642,7 @@ def _normalize_cookie_file(path):
             raise CookieError('JSON Cookie 格式不支持')
 
         base,_=os.path.splitext(p)
-        txt_out=f'{base}__auto_netscape.txt'
+        txt_out=f'{base}_auto_netscape.txt'
         need_write=True
         try:
             need_write=(os.path.getmtime(txt_out) < os.path.getmtime(p))
@@ -678,7 +678,7 @@ def _resolve_cookie_file(path, create_dir=False):
             for fp in glob.glob(os.path.join(cdir,pat)):
                 if not os.path.isfile(fp): continue
                 if os.path.islink(fp): continue
-                if fp.endswith('__auto_netscape.txt'): continue
+                if fp.endswith('_auto_netscape.txt'): continue
                 real_fp=os.path.realpath(fp)
                 try:
                     if os.path.commonpath([cdir_real,real_fp])!=cdir_real:
@@ -1380,7 +1380,7 @@ class PreviewTable:
         # A-1: description 纯 ASCII
         all_cb=W.Checkbox(
             value=True,description='全选',indent=False,
-            layout=W.Layout(width='72px',min_width='72px'),
+            layout=W.Layout(width='auto',min_width='72px'),
             tooltip='全选 / 取消全选')
         def _toggle_all(c):
             for b in self._boxes: b.value=c['new']
@@ -1390,7 +1390,7 @@ class PreviewTable:
         self._saved_toggled=False
         btn_saved=W.Button(
             description='已存+',
-            layout=W.Layout(width='96px',height='30px'),
+            layout=W.Layout(width='auto',min_width='90px',height='30px'),
             style={'font_size':'12px','button_color':'#1565c0'},
             tooltip='已存+: 勾选所有已存视频\n已存-: 取消所有已存视频勾选')
 
