@@ -125,6 +125,7 @@ SORT_OPTS = {'relevance': '', 'views': 'viewcount'}
 _SP       = {'viewcount': '&sp=CAM%3D', '': ''}
 
 SORT_LABELS = {'relevance': '相关性', 'views': '最多播放'}
+MODE_LABELS = {'Hot': '热门', 'Quality': '深度', 'Short': '短视频'}
 
 MODES = {
     'Hot':     {'desc':'热门视频，按播放量排序',
@@ -149,39 +150,39 @@ _CHANNEL_RE = re.compile(
     r'youtube\.com/(@[^/?#\s]+|channel/[^/?#\s]+|c/[^/?#\s]+'
     r'|user/[^/?#\s]+|playlist\?list=)',re.I)
 
-# A-1: 固定模块 description 全 ASCII，tooltip 显示中文
+# 固定模块（中文标签 + 英文搜索词）
 KEYWORD_MODULES = {
-    'AI / ML': {
-        'Transformer': ('transformer explained from scratch',   'AI原理'),
-        'LLM':         ('LLM implementation tutorial 2026',     '大模型实战'),
-        'AI Agent':    ('AI agent build from scratch',          'AI Agent'),
-        'Paper':       ('AI research paper explained 2026',     '论文精读'),
-        'OpenSource':  ('open source AI tools github 2026',     '开源项目'),
+    'AI / 机器学习': {
+        'Transformer 原理': ('transformer explained from scratch',   'AI原理'),
+        'LLM 实战':         ('LLM implementation tutorial 2026',     '大模型实战'),
+        'AI Agent':         ('AI agent build from scratch',          '智能体开发'),
+        '论文精读':         ('AI research paper explained 2026',     '论文精读'),
+        '开源项目':         ('open source AI tools github 2026',     '开源项目'),
     },
-    'Code': {
-        'Python':      ('python project tutorial 2026',         'Python实战'),
-        'Algorithm':   ('algorithm explained visually',         '算法讲解'),
-        'SysDesign':   ('system design explained',              '系统设计'),
-        'Math':        ('math intuition visual explanation',    '数学直觉'),
-        'Frontend':    ('web development tutorial 2026',        '前端开发'),
+    '编程': {
+        'Python 实战':   ('python project tutorial 2026',         'Python实战'),
+        '算法讲解':       ('algorithm explained visually',         '算法讲解'),
+        '系统设计':       ('system design explained',              '系统设计'),
+        '数学直觉':       ('math intuition visual explanation',    '数学直觉'),
+        '前端开发':       ('web development tutorial 2026',        '前端开发'),
     },
-    'Game': {
-        'Highlights':  ('game highlights 2026',                 '精彩时刻'),
-        'Indie':       ('indie game review 2026',               '独立游戏'),
-        'Speedrun':    ('speedrun world record 2026',           '速通纪录'),
-        'Design':      ('game design analysis deep dive',       '游戏设计'),
+    '游戏': {
+        '精彩时刻':      ('game highlights 2026',                 '精彩时刻'),
+        '独立游戏':      ('indie game review 2026',               '独立游戏'),
+        '速通纪录':      ('speedrun world record 2026',           '速通纪录'),
+        '游戏设计':      ('game design analysis deep dive',       '游戏设计'),
     },
-    'Anime': {
-        'Essay':       ('anime video essay 2025',               '深度分析'),
-        'Sakuga':      ('anime sakuga breakdown',               '作画赏析'),
-        'Season':      ('best anime 2025 recommendation',       '新番推荐'),
-        'Manga':       ('manga vs anime adaptation comparison', '漫改对比'),
+    '动漫': {
+        '深度分析':      ('anime video essay 2025',               '深度分析'),
+        '作画赏析':      ('anime sakuga breakdown',               '作画赏析'),
+        '新番推荐':      ('best anime 2025 recommendation',       '新番推荐'),
+        '漫改对比':      ('manga vs anime adaptation comparison', '漫改对比'),
     },
-    'Entertainment': {
-        'Trailer':     ('movie trailer 2026',                   '电影预告'),
-        'Documentary': ('documentary full length 2026',         '深度纪录片'),
-        'Comedy':      ('comedy sketch 2026',                   '喜剧短片'),
-        'Viral':       ('most viral video 2026',                '近期爆款'),
+    '娱乐': {
+        '电影预告':      ('movie trailer 2026',                   '电影预告'),
+        '深度纪录片':    ('documentary full length 2026',         '深度纪录片'),
+        '喜剧短片':      ('comedy sketch 2026',                   '喜剧短片'),
+        '近期爆款':      ('most viral video 2026',                '近期爆款'),
     },
 }
 
@@ -489,44 +490,44 @@ class StatusBar:
     def __init__(self,uiq):
         self._uiq=uiq
         self._w=W.HTML(
-            value=_sb('idle','  ','Ready'),
+            value=_sb('idle','  ','就绪'),
             layout=W.Layout(width='100%'))
 
     def _push(self,html): self._uiq.put('status',html)
 
     def idle(self):
-        self._push(_sb('idle','  ','Ready'))
+        self._push(_sb('idle','  ','就绪'))
     def searching(self,q):
-        self._push(_sb('info','S',f'Searching: {_trim(q,48)}'))
+        self._push(_sb('info','S',f'搜索中: {_trim(q,48)}'))
     def fetching_urls(self,n):
-        self._push(_sb('info','S',f'Fetching {n} video(s)...'))
+        self._push(_sb('info','S',f'正在读取 {n} 条视频...'))
     def fetching_channel(self,name):
-        self._push(_sb('info','S',f'Reading channel: {_trim(name,44)}'))
+        self._push(_sb('info','S',f'读取频道: {_trim(name,44)}'))
     def found(self,n,mode,skipped=0):
-        sk=f'  (skipped {skipped} saved)' if skipped else ''
+        sk=f'（跳过 {skipped} 条已下载）' if skipped else ''
         self._push(_sb('ok','OK',
-            f'Found {n} ({mode}){sk} — check boxes then Download'))
+            f'找到 {n} 条（{mode}）{sk} — 勾选后点下载'))
     def downloading(self,idx,n,title):
         self._push(_sb('dl','>',
-            f'Downloading {idx}/{n} | {_trim(title,44)}'))
+            f'下载中 {idx}/{n} | {_trim(title,44)}'))
     def update_progress(self,pct,idx,n,title):
         self._push(_sb('dl','>',
             f'{int(pct)}%  {idx}/{n} | {_trim(title,44)}'))
     def paused(self,idx,n):
         self._push(_sb('pause','||',
-            f'Will pause after current video ({idx}/{n}) — click Resume'))
+            f'当前视频结束后暂停（{idx}/{n}）— 点击继续'))
     def paused_after(self,done,n):
         self._push(_sb('pause','||',
-            f'Paused ({done}/{n} done) — click Resume to continue'))
+            f'已暂停（完成 {done}/{n}）— 点击继续'))
     def resuming(self):
-        self._push(_sb('ok','>','Resuming...'))
+        self._push(_sb('ok','>','继续下载中...'))
     def done(self,done,fails,size,elapsed):
         self._push(_sb('ok','+',
-            f'Done +{done} -{fails}  {_fmt_size(size)}  {elapsed:.0f}s'))
+            f'完成 +{done} -{fails}  {_fmt_size(size)}  {elapsed:.0f}s'))
     def stopped(self,done,fails):
-        self._push(_sb('stop','[]',f'Stopped  +{done} -{fails}'))
+        self._push(_sb('stop','[]',f'已停止  +{done} -{fails}'))
     def cancelled(self):
-        self._push(_sb('stop','x','Search cancelled'))
+        self._push(_sb('stop','x','搜索已取消'))
     def error(self,msg):
         self._push(_sb('err','!',msg))
     def widget(self): return self._w
@@ -1209,7 +1210,7 @@ class PreviewTable:
             self._rows_box.children=()
             self.container.children=(
                 W.HTML('<div style="padding:20px;text-align:center;'
-                       'color:#666;font-size:13px">No results</div>'),)
+                       'color:#9e9e9e;font-size:13px">无结果</div>'),)
             return
 
         self._items=list(items)
@@ -1251,9 +1252,9 @@ class PreviewTable:
         # ── 控制区（全在 _rows_box 外部）──────────────────────
         # A-1: description 纯 ASCII
         all_cb=W.Checkbox(
-            value=True,description='All',indent=False,
+            value=True,description='全选',indent=False,
             layout=W.Layout(width='48px',min_width='48px'),
-            tooltip='Select all / Deselect all')
+            tooltip='全选 / 取消全选')
         def _toggle_all(c):
             for b in self._boxes: b.value=c['new']
         all_cb.observe(_toggle_all,names='value')
@@ -1261,10 +1262,10 @@ class PreviewTable:
         # C: 单 toggle 按钮（Saved+ / Saved-）
         self._saved_toggled=False
         btn_saved=W.Button(
-            description='Saved+',
+            description='已存+',
             layout=W.Layout(width='76px',height='26px'),
             style={'font_size':'11px','button_color':'#1565c0'},
-            tooltip='Saved+: 勾选所有已存视频\nSaved-: 取消所有已存视频的勾选')
+            tooltip='已存+: 勾选所有已存视频\n已存-: 取消所有已存视频勾选')
 
         def _toggle_saved(_):
             self._saved_toggled=not self._saved_toggled
@@ -1272,18 +1273,18 @@ class PreviewTable:
             for r,b in zip(self._items,self._boxes):
                 if r.get('id','') in self._saved_ids:
                     b.value=val
-            btn_saved.description='Saved-' if val else 'Saved+'
+            btn_saved.description='已存-' if val else '已存+'
             btn_saved.style.button_color='#c62828' if val else '#1565c0'
         btn_saved.on_click(_toggle_saved)
 
         has_saved=bool(self._saved_ids & {r.get('id','') for r in items})
         note=W.HTML(
-            f'<div style="font-size:10px;color:#777;padding:4px 8px;'
+            f'<div style="font-size:10px;color:#b0bec5;padding:4px 8px;'
             f'border-bottom:1px solid rgba(255,255,255,0.08)">'
-            f'<b style="color:#ccc">{len(items)}</b> results'
-            f'{" &nbsp;[v]=saved(unchecked by default)" if has_saved else ""}'
-            f'&nbsp; [>]=DL &nbsp;[+]=done &nbsp;[x]=fail'
-            f'&nbsp; | drag checkboxes to batch select'
+            f'<b style="color:#ccc">{len(items)}</b> 条结果'
+            f'{" &nbsp;[v]=已下载(默认不勾选)" if has_saved else ""}'
+            f'&nbsp; [>]=下载中 &nbsp;[+]=完成 &nbsp;[x]=失败'
+            f'&nbsp; | 拖拽复选框可批量勾选'
             f'</div>')
 
         header=W.HTML(
@@ -1291,10 +1292,10 @@ class PreviewTable:
             f'gap:0 6px;font-size:11px;color:#888;'
             f'padding:5px 6px;border-bottom:1px solid rgba(255,255,255,0.15)">'
             f'<div style="text-align:center">#</div>'
-            f'<div>Title / Channel</div>'
-            f'<div style="text-align:center">St</div>'
-            f'<div style="text-align:right;padding-right:4px">Views</div>'
-            f'<div style="text-align:center">Dur</div>'
+            f'<div>标题 / 频道</div>'
+            f'<div style="text-align:center">状态</div>'
+            f'<div style="text-align:right;padding-right:4px">播放</div>'
+            f'<div style="text-align:center">时长</div>'
             f'</div>')
 
         ctrl=W.HBox(
@@ -1410,7 +1411,7 @@ class Dashboard:
         if 'prev_btn' in pending and pending['prev_btn']=='reset':
             if 'prev' in self._w:
                 self._w['prev'].disabled=False
-                self._w['prev'].description='Search'
+                self._w['prev'].description='搜索'
             if 'cancel_prev' in self._w:
                 self._w['cancel_prev'].disabled=True
 
@@ -1423,14 +1424,14 @@ class Dashboard:
     def _do_reset_dl_btns(self):
         if 'dl'     in self._w:
             self._w['dl'].disabled=False
-            self._w['dl'].description='Download'
+            self._w['dl'].description='下载'
         if 'pause'  in self._w:
             self._w['pause'].disabled=True
-            self._w['pause'].description='Pause'
+            self._w['pause'].description='暂停'
         if 'resume' in self._w: self._w['resume'].disabled=True
         if 'stop'   in self._w:
             self._w['stop'].disabled=True
-            self._w['stop'].description='Stop'
+            self._w['stop'].description='终止'
         if 'prev'   in self._w: self._w['prev'].disabled=False
         self._dl_running=False
         self._table.set_downloading(False)
@@ -1438,13 +1439,13 @@ class Dashboard:
     def _build(self):
         L=W.Layout
 
-        # 模式按钮（A-1: description纯ASCII）
+        # 模式按钮
         mode_btns=[]
         for mn,mc in MODES.items():
-            b=W.Button(description=mn,
+            b=W.Button(description=MODE_LABELS.get(mn,mn),
                        layout=L(width='80px',height='30px'),
                        style={'font_size':'12px',
-                              'button_color':mc['color']},
+                               'button_color':mc['color']},
                        tooltip=mc['desc'])
             def _om(_,_n=mn,_c=mc):
                 self._mode_cfg=_c; self._mode_name=_n
@@ -1453,32 +1454,30 @@ class Dashboard:
                 for _b2,_n2 in zip(mode_btns,MODES):
                     _b2.style.button_color=(
                         '#37474f' if _n2==_n else MODES[_n2]['color'])
-                self._log.write(f'Mode: {_n} — {_c["desc"]}')
+                self._log.write(
+                    f'模式: {MODE_LABELS.get(_n,_n)} — {_c["desc"]}')
                 self._flush_queue()
             b.on_click(_om); mode_btns.append(b)
 
-        # A-1: description 纯 ASCII
         w_query=W.Textarea(
-            placeholder='Keyword / URL / multiple URLs / channel URL',
-            description='Query:',
+            placeholder='关键词 / 单个URL / 多个URL / 频道URL',
+            description='输入:',
             style={'description_width':'52px'},
             layout=L(width='98%',height='52px'))
-        # A-4: 只保留两个排序
         w_sort=W.Dropdown(
-            options=list(SORT_OPTS.keys()),
+            options=[('最多播放','views'),('相关性','relevance')],
             value='views',
-            description='Sort:',
+            description='排序:',
             style={'description_width':'40px'},
             layout=L(width='155px'),
-            tooltip='relevance=YouTube algo  views=by view count')
+            tooltip='相关性=YouTube默认  最多播放=按播放量')
         w_count=W.IntSlider(
             value=15,min=1,max=200,step=1,
-            description='Count:',
+            description='数量:',
             style={'description_width':'46px'},
             layout=L(width='46%'),continuous_update=False)
         self._w['sort']=w_sort; self._w['count']=w_count
 
-        # A-11: 固定模块，短标题
         mod_rows=[]
         for cat,kws in KEYWORD_MODULES.items():
             btns=[]
@@ -1506,28 +1505,27 @@ class Dashboard:
                 W.HTML('<div style="font-size:10px;color:#666;'
                        'padding:2px 0 4px;border-bottom:1px solid '
                        'rgba(255,255,255,0.1);margin-bottom:4px">'
-                       'Click to fill query · hover for Chinese name'
-                       ' · year auto-replaced</div>'),
+                       '点击自动填入搜索词 · 悬停看说明'
+                       ' · 年份自动替换</div>'),
                 W.VBox(mod_rows)
             ],layout=L(padding='4px'))],
             layout=L(width='100%',margin='2px 0'))
-        try:    acc_mod.titles=('Presets',)
-        except: acc_mod.set_title(0,'Presets')
+        try:    acc_mod.titles=('固定模块',)
+        except: acc_mod.set_title(0,'固定模块')
         acc_mod.selected_index=None
         self._acc_mod=acc_mod
 
-        # 设置（A-1: 所有 description 纯 ASCII）
         w_cookie=W.Text(
-            value=Cfg.COOKIE,description='Cookie:',
+            value=Cfg.COOKIE,description='Cookie路径:',
             style={'description_width':'52px'},layout=L(width='97%'),
-            tooltip='YouTube cookie file path (upload to Drive first)')
+            tooltip='YouTube Cookie 文件路径（先上传到云盘）')
         w_save=W.Text(
-            value=Cfg.SAVE_DIR,description='Path:',
+            value=Cfg.SAVE_DIR,description='保存路径:',
             style={'description_width':'52px'},layout=L(width='97%'),
             tooltip='保存目录 — auto-created if not exist')
         w_maxmb=W.IntSlider(
             value=0,min=0,max=10000,step=100,
-            description='Max MB:',
+            description='大小上限:',
             style={'description_width':'52px'},
             layout=L(width='52%'),continuous_update=False,
             tooltip='Max file size per video (MB), 0=unlimited')
@@ -1547,19 +1545,19 @@ class Dashboard:
         w_maxmb.observe(_upd_label,names='value')
 
         w_subtitle=W.Checkbox(
-            value=False,description='Subtitles',indent=False,
+            value=False,description='下载字幕',indent=False,
             layout=L(width='auto'),
             tooltip='下载字幕 zh-Hans/zh-Hant/en')
         w_skip_saved=W.Checkbox(
-            value=True,description='Skip saved',indent=False,
+            value=True,description='跳过已下载',indent=False,
             layout=L(width='auto'),
             tooltip='跳过已下载视频（推荐开启）')
         w_reset_btn=W.Button(
-            description='Reset',button_style='warning',
+            description='重置记录',button_style='warning',
             layout=L(width='76px'),
             tooltip='清空下载记录（不删除文件）')
         w_reset_idx=W.Checkbox(
-            value=False,description='+ index',indent=False,
+            value=False,description='含索引',indent=False,
             layout=L(width='auto'),
             tooltip='同时清空已存索引 (.yt_index.json)')
         w_reset_btn.on_click(lambda _:self._on_reset(w_reset_idx.value))
@@ -1577,36 +1575,35 @@ class Dashboard:
                        layout=L(align_items='center')),
             ],layout=L(padding='6px'))],
             layout=L(width='100%',margin='2px 0'))
-        try:    acc_set.titles=('Settings',)
-        except: acc_set.set_title(0,'Settings')
+        try:    acc_set.titles=('设置',)
+        except: acc_set.set_title(0,'设置')
         acc_set.selected_index=None
         self._w.update({'cookie':w_cookie,'save':w_save,
                         'maxmb':w_maxmb,'subtitle':w_subtitle,
                         'skip_saved':w_skip_saved})
 
-        # 按钮（A-1: 全 ASCII）
-        w_prev=W.Button(description='Search',button_style='info',
+        w_prev=W.Button(description='搜索',button_style='info',
                         layout=L(width='80px'),tooltip='搜索并显示预览')
-        w_dl=W.Button(description='Download',button_style='success',
+        w_dl=W.Button(description='下载',button_style='success',
                       layout=L(width='90px'),tooltip='下载勾选的视频')
-        w_pause=W.Button(description='Pause',
+        w_pause=W.Button(description='暂停',
                          layout=L(width='72px'),disabled=True,
                          style={'button_color':'#f57f17'},
                          tooltip='当前视频下完后暂停')
-        w_resume=W.Button(description='Resume',button_style='success',
+        w_resume=W.Button(description='继续',button_style='success',
                           layout=L(width='72px'),disabled=True,
                           tooltip='继续下载')
-        w_stop=W.Button(description='Stop',button_style='danger',
+        w_stop=W.Button(description='终止',button_style='danger',
                         layout=L(width='72px'),disabled=True,
                         tooltip='终止下载')
-        w_refresh=W.Button(description='Restart',
+        w_refresh=W.Button(description='刷新',
                            layout=L(width='72px'),
                            style={'button_color':'#607d8b'},
                            tooltip='状态长时间不更新时点击，重启2s定时器')
-        w_clear_p=W.Button(description='Clear list',
+        w_clear_p=W.Button(description='清空列表',
                            layout=L(width='80px'),
                            style={'button_color':'#37474f'})
-        w_clear_l=W.Button(description='Clear log',
+        w_clear_l=W.Button(description='清空日志',
                            layout=L(width='80px'),
                            style={'button_color':'#37474f'})
         self._w.update({'prev':w_prev,'dl':w_dl,
@@ -1617,15 +1614,15 @@ class Dashboard:
             return (w_query.value.strip(),
                     SORT_OPTS.get(w_sort.value,''),
                     w_count.value,
-                    w_cookie.value.strip(),
-                    w_save.value.strip())
+                    Cfg.fix(w_cookie.value.strip()),
+                    Cfg.fix(w_save.value.strip()))
 
         def _on_refresh(_):
             self._flush_queue()
             if _IN_COLAB:
                 try: display(HTML(_AUTO_REFRESH_JS))
                 except: pass
-            self._log.write('Auto-refresh timer restarted (2s)')
+            self._log.write('自动刷新计时器已重启（2秒）')
             self._flush_queue()
 
         w_refresh.on_click(_on_refresh)
@@ -1657,42 +1654,42 @@ class Dashboard:
 
         def _sep(t):
             return W.HTML(
-                f'<div style="font-size:10px;color:#555;'
-                f'border-bottom:1px solid rgba(255,255,255,0.08);'
+                f'<div style="font-size:10px;color:#b0bec5;'
+                f'border-bottom:1px solid rgba(255,255,255,0.18);'
                 f'padding:2px 0;margin:5px 0 2px">{t}</div>')
 
         log_acc=W.Accordion(
             children=[self._log.widget()],
             layout=L(width='100%',margin='2px 0'))
-        try:    log_acc.titles=('Log',)
-        except: log_acc.set_title(0,'Log')
+        try:    log_acc.titles=('日志',)
+        except: log_acc.set_title(0,'日志')
         log_acc.selected_index=0
 
         note=W.HTML(
-            '<div style="font-size:11px;color:#777;'
+            '<div style="font-size:11px;color:#cfd8dc;'
             'background:rgba(255,255,255,0.04);'
             'border:1px solid rgba(255,255,255,0.1);'
             'border-radius:3px;padding:4px 10px;margin:3px 0">'
-            'Query: keyword / URL / multi-URL / channel URL'
-            '&nbsp;|&nbsp;[v]=saved(unchecked)&nbsp;'
-            '[>]=DL&nbsp;[+]=done&nbsp;[x]=fail'
-            '&nbsp;|&nbsp;drag checkboxes to batch select'
+            '支持：关键词 / 单URL / 多URL / 频道URL'
+            '&nbsp;|&nbsp;[v]=已下载(默认不勾选)&nbsp;'
+            '[>]=下载中&nbsp;[+]=完成&nbsp;[x]=失败'
+            '&nbsp;|&nbsp;拖拽复选框可批量勾选'
             '</div>')
 
         return W.VBox([
             W.HTML('<div style="font-size:15px;font-weight:600;'
                    'margin:4px 0 6px;color:#ddd">'
-                   'YouTube Downloader '
-                   '<span style="font-size:11px;color:#555;'
+                   'YouTube 下载器 '
+                   '<span style="font-size:11px;color:#9e9e9e;'
                    'font-weight:400">v331</span></div>'),
-            _sep('Mode'),
+            _sep('模式'),
             W.HBox(mode_btns,layout=L(margin='0 0 4px')),
-            _sep('Search'),
+            _sep('搜索'),
             w_query,
             W.HBox([w_sort,W.HTML('&nbsp;'),w_count]),
             acc_mod,acc_set,btn_row,note,
             self._status.widget(),
-            _sep('Preview'),
+            _sep('预览'),
             w_scroll,log_acc,
         ],layout=W.Layout(
             border='1px solid rgba(255,255,255,0.12)',
@@ -1702,12 +1699,17 @@ class Dashboard:
     def _on_preview(self,query,sort,count,cookie,save,w_prev):
         self._flush_queue()
         if not query:
-            self._log.write('Please enter a query')
-            self._status.error('Query is empty')
+            self._log.write('请输入关键词或URL')
+            self._status.error('输入为空')
             self._flush_queue(); return
-        try: _check_cookie(cookie)
+        ok,msg=_mount_drive()
+        if not ok:
+            self._log.write(f'Drive: {msg}')
+            self._status.error(f'Drive 挂载失败: {msg}')
+            self._flush_queue(); return
+        try: _check_cookie(Cfg.fix(cookie))
         except CookieError as e:
-            self._log.write(f'Cookie error: {e}')
+            self._log.write(f'Cookie 错误: {e}')
             self._status.error(f'Cookie: {e}')
             self._flush_queue(); return
 
@@ -1719,7 +1721,7 @@ class Dashboard:
         cancel_ev=self._cancel_search_ev
 
         w_prev.disabled=True
-        w_prev.description='...'
+        w_prev.description='搜索中...'
         self._flush_queue()
 
         def _search():
@@ -1729,22 +1731,22 @@ class Dashboard:
                 saved=(self._index.get_all_ids()|
                        self._state.get_dl_set())
                 self._log.write(
-                    f'Saved: {len(saved)}  '
-                    f'{"skip saved" if skip_saved else "include saved"}')
+                    f'已存记录: {len(saved)}  '
+                    f'{"跳过已存" if skip_saved else "包含已存"}')
 
                 if itype=='channel_multi_warn':
                     self._log.write(
-                        f'{len(idata)} channel URLs, using first')
+                        f'检测到 {len(idata)} 个频道URL，使用第1个')
                     self._status.fetching_channel(idata[0])
                     res,cancelled=_fetch_channel(
                         idata[0],count,cookie,cancel_ev)
                     if cancelled:
                         self._status.cancelled(); return
-                    mode='channel'
+                    mode='频道'
 
                 elif itype=='keyword':
                     self._status.searching(idata)
-                    self._log.write(f'Keyword: {idata}')
+                    self._log.write(f'关键词: {idata}')
                     url=_build_url(idata,sort)
                     res,skipped=_do_search(
                         url,count,cookie,self._mode_cfg,cancel_ev,
@@ -1754,28 +1756,28 @@ class Dashboard:
 
                 elif itype=='single_url':
                     self._status.searching(idata)
-                    self._log.write(f'Fetching URL: {_trim(idata,60)}')
+                    self._log.write(f'读取URL: {_trim(idata,60)}')
                     item=_fetch_url_info(idata,cookie,cancel_ev)
                     res=[item] if item else []
                     mode='URL'
 
                 elif itype=='multi_url':
                     self._status.fetching_urls(len(idata))
-                    self._log.write(f'Fetching {len(idata)} URLs...')
+                    self._log.write(f'读取 {len(idata)} 个URL...')
                     def _prog(d,t):
                         self._log.write(f'  {d}/{t}')
                         self._auto_flush()
                     res=_fetch_multi_urls(idata,cookie,cancel_ev,_prog)
-                    mode=f'{len(res)} URLs'
+                    mode=f'{len(res)}个URL'
 
                 elif itype=='channel':
                     self._status.fetching_channel(idata)
-                    self._log.write(f'Channel: {_trim(idata,60)}')
+                    self._log.write(f'频道: {_trim(idata,60)}')
                     res,cancelled=_fetch_channel(
                         idata,count,cookie,cancel_ev)
                     if cancelled:
                         self._status.cancelled(); return
-                    mode='channel'
+                    mode='频道'
 
                 if cancel_ev.is_set():
                     self._status.cancelled(); return
@@ -1785,21 +1787,21 @@ class Dashboard:
 
                 if res:
                     self._log.write(
-                        f'Found {len(res)} ({mode})'
-                        +(f'  skipped {skipped} saved' if skipped else ''))
+                        f'找到 {len(res)} 条（{mode}）'
+                        +(f'  已跳过 {skipped} 条已下载' if skipped else ''))
                     self._status.found(len(res),mode,skipped)
                 else:
                     self._log.write(
-                        'No results'
-                        +(f' (skipped {skipped})' if skipped else ''))
-                    self._status.error('No results')
+                        '没有结果'
+                        +(f'（跳过 {skipped}）' if skipped else ''))
+                    self._status.error('没有结果')
 
             except CookieError as e:
-                self._log.write(f'Cookie expired: {e}')
-                self._status.error(f'Cookie expired: {e}')
+                self._log.write(f'Cookie 失效: {e}')
+                self._status.error(f'Cookie 失效: {e}')
             except Exception as e:
-                self._log.write(f'Search error: {type(e).__name__}: {e}')
-                self._status.error(f'Search error: {type(e).__name__}')
+                self._log.write(f'搜索异常: {type(e).__name__}: {e}')
+                self._status.error(f'搜索异常: {type(e).__name__}')
             finally:
                 self._uiq.put('prev_btn','reset')
                 self._auto_flush()
@@ -1827,26 +1829,26 @@ class Dashboard:
                         'channel':'','duration':'N/A','dur_s':0,
                         'view_count':None}]
             else:
-                self._log.write('Please Search first')
+                self._log.write('请先搜索并生成预览')
                 self._flush_queue(); return
         else:
             selected=self._table.get_selected()
             if selected is None:
                 if not query:
-                    self._log.write('Please enter a query')
+                    self._log.write('请输入关键词或URL')
                     self._flush_queue(); return
                 items=None; search_first=True
             elif len(selected)==0:
-                self._log.write('No videos selected')
-                self._status.error('Select at least one video')
+                self._log.write('未勾选任何视频')
+                self._status.error('请至少勾选1条视频')
                 self._flush_queue(); return
             else:
                 items=list(selected)
 
-        w_dl.disabled=True;   w_dl.description='Downloading...'
-        w_pause.disabled=False; w_pause.description='Pause'
+        w_dl.disabled=True;   w_dl.description='下载中...'
+        w_pause.disabled=False; w_pause.description='暂停'
         w_resume.disabled=True
-        w_stop.disabled=False;  w_stop.description='Stop'
+        w_stop.disabled=False;  w_stop.description='终止'
 
         self._run_id+=1
         my_run_id=self._run_id
@@ -1872,22 +1874,22 @@ class Dashboard:
                 ok,msg=_mount_drive()
                 self._log.write(f'Drive: {msg}'); self._auto_flush()
                 if not ok:
-                    self._status.error(f'Drive failed: {msg}')
+                    self._status.error(f'Drive 挂载失败: {msg}')
                     self._auto_flush(); return
                 try:
                     found=_check_cookie(cookie)
                     self._log.write(f'Cookie OK: {found}')
                     self._auto_flush()
                 except CookieError as e:
-                    self._log.write(f'Cookie expired: {e}')
+                    self._log.write(f'Cookie 失效: {e}')
                     self._status.error(f'Cookie: {e}')
                     self._auto_flush(); return
 
                 if search_first:
-                    self._log.write('No preview, searching first...')
+                    self._log.write('未检测到预览，先自动搜索...')
                     surl=_build_url(idata,sort)
                     if not surl:
-                        self._log.write('Invalid input'); return
+                        self._log.write('输入无效'); return
                     try:
                         saved=(self._index.get_all_ids()|
                                self._state.get_dl_set())
@@ -1896,7 +1898,7 @@ class Dashboard:
                             saved_ids=saved if skip_saved else None,
                             skip_saved=bool(skip_saved))
                         if not res:
-                            self._log.write('No results found')
+                            self._log.write('未找到可下载结果')
                             self._auto_flush(); return
                         # B-3: put_cb 保证 render 在主线程，
                         #       time.sleep 给主线程时间执行
@@ -1913,13 +1915,13 @@ class Dashboard:
                         time.sleep(0.4)
                         items=res
                     except CookieError as e:
-                        self._log.write(f'Cookie expired: {e}')
+                        self._log.write(f'Cookie 失效: {e}')
                         self._auto_flush(); return
 
                 sd=_make_session_dir(
                     save,self._mode_name,query[:20],len(items))
                 self._log.write(
-                    f'Downloading {len(items)} videos → {sd}')
+                    f'开始下载 {len(items)} 条视频 → {sd}')
                 self._auto_flush()
 
                 done,fails,sw,done_ids,tb,elapsed=_do_download(
@@ -1942,9 +1944,9 @@ class Dashboard:
                 else:               self._status.done(done,fails,tb,elapsed)
 
             except Exception:
-                self._log.write('Download crashed:')
+                self._log.write('下载崩溃:')
                 self._log.write(traceback.format_exc()[-600:])
-                self._status.error('Crashed, see log')
+                self._status.error('下载崩溃，请看日志')
             finally:
                 self._uiq.put_cb(_guarded_reset)
                 self._auto_flush()
@@ -1960,11 +1962,11 @@ class Dashboard:
         try:
             self._status._w.value=_sb(
                 'pause','||',
-                f'Will pause after current video '
+                f'当前视频结束后暂停 '
                 f'({self._cur_idx}/{self._cur_total})')
         except Exception: pass
         self._log.write(
-            f'[Pause] will stop after current video '
+            f'[暂停] 当前视频结束后暂停 '
             f'({self._cur_idx}/{self._cur_total})')
         self._flush_queue()
 
@@ -1973,9 +1975,9 @@ class Dashboard:
         w_pause.disabled =False
         w_resume.disabled=True
         try:
-            self._status._w.value=_sb('ok','>','Resuming...')
+            self._status._w.value=_sb('ok','>','继续下载中...')
         except Exception: pass
-        self._log.write('[Resume]')
+        self._log.write('[继续]')
         self._flush_queue()
 
     def _on_stop(self):
@@ -1983,19 +1985,19 @@ class Dashboard:
         self._pause_ev.clear()
         if 'stop' in self._w:
             self._w['stop'].disabled   =True
-            self._w['stop'].description='Stopping'
+            self._w['stop'].description='终止中'
         try:
-            self._status._w.value=_sb('stop','[]','Stopping...')
+            self._status._w.value=_sb('stop','[]','正在终止...')
         except Exception: pass
-        self._log.write('[Stop] will stop after current fragment')
+        self._log.write('[终止] 当前分片完成后停止')
         self._flush_queue()
 
     def _on_reset(self,clear_index=False):
         self._state.reset(clear_index=clear_index)
         self._table.clear()
         self._last_results=None
-        msg=('Records cleared'
-             +(' (+ index)' if clear_index else ''))
+        msg=('已清空记录'
+             +('（含索引）' if clear_index else ''))
         self._log.write(msg)
         self._status.idle()
         self._flush_queue()
@@ -2010,7 +2012,7 @@ class Dashboard:
         try: display(HTML(_DRAG_JS))
         except: pass
         self._log.write(
-            'v331 ready — Drive mounts on first search/download')
+            'v331 已就绪 — Drive 将在首次搜索/下载时自动挂载')
         self._log.write(
             f'FRAGS={Cfg.FRAGS}  chunk={Cfg.HTTP_CHUNK_MB}MB  '
             f'maxsize={"unlimited" if Cfg.MAX_MB==0 else str(Cfg.MAX_MB)+"MB"}')
@@ -2031,4 +2033,4 @@ except Exception:
 
 _INSTANCE=Dashboard()
 _INSTANCE.launch()
-print('v331 ready')
+print('v331 已就绪')
