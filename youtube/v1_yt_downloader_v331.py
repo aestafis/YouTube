@@ -151,7 +151,7 @@ AD_KW  = re.compile(
 _CHANNEL_RE = re.compile(
     r'youtube\.com/(@[^/?#\s]+|channel/[^/?#\s]+|c/[^/?#\s]+'
     r'|user/[^/?#\s]+|playlist\?list=)',re.I)
-# YouTube video id: 11 chars from base64url-like alphabet.
+# YouTube 视频 ID：固定 11 位，仅由 base64url 字符集 [A-Za-z0-9_-] 组成。
 _YT_VIDEO_ID_RE = re.compile(r'^[A-Za-z0-9_-]{11}$')
 
 # 固定模块（中文标签 + 英文搜索词）
@@ -736,7 +736,7 @@ def _channel_url_normalize(url):
     return url+'/videos'
 
 def _is_valid_video_id(vid):
-    """Return True when id matches canonical YouTube video-id format."""
+    """Return True if id matches canonical YouTube video-id format."""
     return bool(_YT_VIDEO_ID_RE.fullmatch((vid or '').strip()))
 
 def _fetch_url_info(url, cookie_path, cancel_ev=None):
@@ -1572,7 +1572,7 @@ class Dashboard:
 
     def _build(self):
         L=W.Layout
-        _PANEL_WIDTH='49%'
+        _ACCORDION_PANEL_WIDTH='49%'
 
         # 模式按钮
         mode_btns=[]
@@ -1644,7 +1644,7 @@ class Dashboard:
                        ' · 年份自动替换</div>'),
                 W.VBox(mod_rows)
             ],layout=L(padding='4px'))],
-            layout=L(width=_PANEL_WIDTH,margin='2px 0'))
+            layout=L(width=_ACCORDION_PANEL_WIDTH,margin='2px 0'))
         try:    acc_mod.titles=('固定模块',)
         except: acc_mod.set_title(0,'固定模块')
         acc_mod.selected_index=None
@@ -1653,7 +1653,7 @@ class Dashboard:
         w_cookie=W.Text(
             value=Cfg.COOKIE,description='Cookie路径:',
             style={'description_width':'52px'},layout=L(width='97%'),
-            tooltip='可填文件或文件夹；支持 JSON（含粘贴到 txt 的 JSON）自动转换')
+            tooltip='可填文件或文件夹；支持 JSON（含粘贴到 txt 文件的 JSON）自动转换')
         w_save=W.Text(
             value=Cfg.SAVE_DIR,description='保存路径:',
             style={'description_width':'52px'},layout=L(width='97%'),
@@ -1709,7 +1709,7 @@ class Dashboard:
                 W.HBox([w_reset_btn,W.HTML('&nbsp;'),w_reset_idx],
                        layout=L(align_items='center')),
             ],layout=L(padding='6px'))],
-            layout=L(width=_PANEL_WIDTH,margin='2px 0'))
+            layout=L(width=_ACCORDION_PANEL_WIDTH,margin='2px 0'))
         try:    acc_set.titles=('设置',)
         except: acc_set.set_title(0,'设置')
         acc_set.selected_index=None
