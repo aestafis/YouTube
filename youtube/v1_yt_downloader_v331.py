@@ -6,6 +6,7 @@ import shutil, traceback, difflib, threading
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FT
 from datetime import datetime
 from html import escape
+from urllib.parse import urlparse
 
 def _pip(*pkgs):
     for p in pkgs:
@@ -16,7 +17,7 @@ def _pip(*pkgs):
 def _apt(*pkgs):
     apt = shutil.which('apt-get')
     if not apt:
-        print('[WARN] apt-get unavailable; skipping apt install')
+        print('[WARN] apt-get unavailable; skipping apt installs')
         return False
     ok = True
     for p in pkgs:
@@ -1137,7 +1138,8 @@ def _row_html(i, r, st=None, reason=''):
     ch_raw   =_trim(r.get('channel') or 'N/A',24)
     dur_raw  =str(r.get('duration','-') or '-')
     url_raw  =str(r.get('url','#') or '#')
-    if not re.match(r'^https?://',url_raw,re.I):
+    pu=urlparse(url_raw)
+    if pu.scheme.lower() not in ('http','https') or not pu.netloc:
         url_raw='#'
     views_raw=_fmt_views(r.get('view_count'))
     title=escape(title_raw,quote=True)
