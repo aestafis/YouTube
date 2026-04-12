@@ -5,7 +5,7 @@ import subprocess, sys, os, re, json, time, glob
 import shutil, traceback, difflib, threading
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FT
 from datetime import datetime
-from html import escape
+from html import escape, unescape
 from urllib.parse import urlparse
 
 def _pip(*pkgs):
@@ -594,6 +594,70 @@ def _looks_like_dir_path(path):
     base=os.path.basename(p)
     return ('.' not in base)
 
+def _cookie_json_to_netscape_txt(cookies):
+    lines=['# Netscape HTTP Cookie File',
+           '# Generated from JSON cookie export']
+    for c in (cookies or []):
+        if not isinstance(c,dict): continue
+        domain=str(c.get('domain','') or '').strip()
+        name  =str(c.get('name','') or '').strip()
+        value =unescape(str(c.get('value','') or ''))
+        if not domain or not name: continue
+        path  =str(c.get('path','/') or '/')
+        secure='TRUE' if bool(c.get('secure')) else 'FALSE'
+        include_sub='TRUE' if (domain.startswith('.')
+                               or not bool(c.get('hostOnly',False))) else 'FALSE'
+        exp=c.get('expirationDate',0)
+        try: exp_i=max(0,int(float(exp)))
+        except Exception: exp_i=0
+        lines.append('\t'.join([
+            domain,include_sub,path,secure,str(exp_i),name,value
+        ]))
+    if len(lines)<=2:
+        raise CookieError('JSON 中没有可用的 Cookie 条目')
+    return '\n'.join(lines)+'\n'
+
+def _normalize_cookie_file(path):
+    p=Cfg.fix(path)
+    if not os.path.isfile(p): return p
+    try:
+        with open(p,encoding='utf-8',errors='ignore') as f:
+            head=f.read(4096).lstrip()
+    except Exception:
+        return p
+
+    is_json = p.lower().endswith('.json') or (
+        head[:1] in ('[','{') and '"domain"' in head and '"name"' in head
+    )
+    if not is_json: return p
+
+    try:
+        with open(p,encoding='utf-8',errors='ignore') as f:
+            raw=json.load(f)
+        if isinstance(raw,dict) and isinstance(raw.get('cookies'),list):
+            cookies=raw['cookies']
+        elif isinstance(raw,list):
+            cookies=raw
+        else:
+            raise CookieError('JSON Cookie 格式不支持')
+
+        base,_=os.path.splitext(p)
+        txt_out=f'{base}__auto_netscape.txt'
+        need_write=True
+        try:
+            need_write=(os.path.getmtime(txt_out) < os.path.getmtime(p))
+        except OSError:
+            need_write=True
+        if need_write:
+            txt=_cookie_json_to_netscape_txt(cookies)
+            with open(txt_out,'w',encoding='utf-8') as f:
+                f.write(txt)
+        return txt_out
+    except CookieError:
+        raise
+    except Exception as e:
+        raise CookieError(f'Cookie JSON 解析失败: {type(e).__name__}')
+
 def _resolve_cookie_file(path, create_dir=False):
     p=Cfg.fix((path or '').strip())
     if not p: raise CookieError('Cookie 路径为空')
@@ -607,7 +671,8 @@ def _resolve_cookie_file(path, create_dir=False):
         elif not os.path.isdir(cdir):
             raise CookieError(f'目录不存在:{cdir}')
 
-        pats=('youtube_cookies*.txt','*cookie*.txt','*.txt')
+        pats=('youtube_cookies*.txt','youtube_cookies*.json',
+              '*cookie*.txt','*cookie*.json','*.txt','*.json')
         files=[]; seen=set()
         for pat in pats:
             for fp in glob.glob(os.path.join(cdir,pat)):
@@ -628,12 +693,12 @@ def _resolve_cookie_file(path, create_dir=False):
         if not files:
             raise CookieError(
                 f'未找到 Cookie 文件，请在目录中放入 *.txt: {cdir}')
-        return files[0]
+        return _normalize_cookie_file(files[0])
 
     parent=os.path.dirname(p)
     if create_dir and parent:
         os.makedirs(parent,exist_ok=True)
-    return p
+    return _normalize_cookie_file(p)
 
 def _check_cookie(path):
     path = Cfg.fix(path)
@@ -1102,9 +1167,9 @@ def _do_download(items, cookie_path, save_dir,
 _DRAG_JS = """
 <script>
 (function(){
-  if(window._yt_drag_v331) return;
-  window._yt_drag_v331 = true;
-  var D={on:false,startIdx:-1,curIdx:-1,targetVal:null};
+  if(window._yt_drag_v332) return;
+  window._yt_drag_v332 = true;
+  var D={on:false,startIdx:-1,curIdx:-1,minIdx:-1,maxIdx:-1,targetVal:null};
 
   function _rowCbs(){
     var c=document.querySelector('.yt-rows-box');
@@ -1127,7 +1192,8 @@ _DRAG_JS = """
   document.addEventListener('pointerdown',function(e){
     var cb=_getCbInRows(e.target); if(!cb) return;
     var cbs=_rowCbs(); var idx=cbs.indexOf(cb); if(idx<0) return;
-    D.on=true; D.startIdx=idx; D.curIdx=idx; D.targetVal=!cb.checked;
+    D.on=true; D.startIdx=idx; D.curIdx=idx;
+    D.minIdx=idx; D.maxIdx=idx; D.targetVal=!cb.checked;
     cb.checked=D.targetVal; e.preventDefault();
   },{capture:true,passive:false});
 
@@ -1137,13 +1203,15 @@ _DRAG_JS = """
     var cb2=_getCbInRows(el); if(!cb2) return;
     var cbs=_rowCbs(); var idx=cbs.indexOf(cb2); if(idx<0) return;
     D.curIdx=idx;
+    D.minIdx=Math.min(D.minIdx,idx);
+    D.maxIdx=Math.max(D.maxIdx,idx);
     var lo=Math.min(D.startIdx,idx),hi=Math.max(D.startIdx,idx);
     cbs.forEach(function(c,i){if(i>=lo&&i<=hi) c.checked=D.targetVal;});
   },{capture:true,passive:true});
 
   document.addEventListener('pointerup',function(){
     if(!D.on){D.on=false;return;} D.on=false;
-    var lo=Math.min(D.startIdx,D.curIdx),hi=Math.max(D.startIdx,D.curIdx);
+    var lo=Math.min(D.minIdx,D.maxIdx),hi=Math.max(D.minIdx,D.maxIdx);
     try{google.colab.kernel.invokeFunction(
       '_yt_drag_commit',[lo,hi,D.targetVal?1:0],{});}catch(e){}
   },true);
@@ -1311,7 +1379,7 @@ class PreviewTable:
         # A-1: description 纯 ASCII
         all_cb=W.Checkbox(
             value=True,description='全选',indent=False,
-            layout=W.Layout(width='48px',min_width='48px'),
+            layout=W.Layout(width='72px',min_width='72px'),
             tooltip='全选 / 取消全选')
         def _toggle_all(c):
             for b in self._boxes: b.value=c['new']
@@ -1321,8 +1389,8 @@ class PreviewTable:
         self._saved_toggled=False
         btn_saved=W.Button(
             description='已存+',
-            layout=W.Layout(width='76px',height='26px'),
-            style={'font_size':'11px','button_color':'#1565c0'},
+            layout=W.Layout(width='90px',height='30px'),
+            style={'font_size':'12px','button_color':'#1565c0'},
             tooltip='已存+: 勾选所有已存视频\n已存-: 取消所有已存视频勾选')
 
         def _toggle_saved(_):
@@ -1494,6 +1562,9 @@ class Dashboard:
         self._dl_running=False
         self._table.set_downloading(False)
 
+    def _saved_ids_union(self):
+        return (self._index.get_all_ids() | self._state.get_dl_set())
+
     def _build(self):
         L=W.Layout
 
@@ -1572,6 +1643,11 @@ class Dashboard:
         except: acc_mod.set_title(0,'固定模块')
         acc_mod.selected_index=None
         self._acc_mod=acc_mod
+        mod_block=W.VBox([
+            W.HTML('<div style="font-size:11px;color:#9e9e9e;'
+                   'margin:2px 0 0 2px">固定模块</div>'),
+            acc_mod
+        ],layout=L(width='100%'))
 
         w_cookie=W.Text(
             value=Cfg.COOKIE,description='Cookie路径:',
@@ -1636,6 +1712,11 @@ class Dashboard:
         try:    acc_set.titles=('设置',)
         except: acc_set.set_title(0,'设置')
         acc_set.selected_index=None
+        set_block=W.VBox([
+            W.HTML('<div style="font-size:11px;color:#9e9e9e;'
+                   'margin:2px 0 0 2px">设置</div>'),
+            acc_set
+        ],layout=L(width='100%'))
         self._w.update({'cookie':w_cookie,'save':w_save,
                         'maxmb':w_maxmb,'subtitle':w_subtitle,
                         'skip_saved':w_skip_saved})
@@ -1745,7 +1826,7 @@ class Dashboard:
             _sep('搜索'),
             w_query,
             W.HBox([w_sort,W.HTML('&nbsp;'),w_count]),
-            acc_mod,acc_set,btn_row,note,
+            mod_block,set_block,btn_row,note,
             self._status.widget(),
             _sep('预览'),
             w_scroll,log_acc,
@@ -1790,8 +1871,7 @@ class Dashboard:
             res=[]; mode=self._mode_name; skipped=0
             try:
                 _mount_drive()
-                saved=(self._index.get_all_ids()|
-                       self._state.get_dl_set())
+                saved=self._saved_ids_union()
                 self._log.write(
                     f'已存记录: {len(saved)}  '
                     f'{"跳过已存" if skip_saved else "包含已存"}')
@@ -1955,8 +2035,7 @@ class Dashboard:
                     if not surl:
                         self._log.write('输入无效'); return
                     try:
-                        saved=(self._index.get_all_ids()|
-                               self._state.get_dl_set())
+                        saved=self._saved_ids_union()
                         res,_sk=_do_search(
                             surl,count,cookie_file,self._mode_cfg,
                             saved_ids=saved if skip_saved else None,
@@ -1999,6 +2078,7 @@ class Dashboard:
                     table_mark_cb=self._table.mark)
 
                 self._index.invalidate()
+                self._table.set_saved_ids(self._saved_ids_union())
                 sl_lbl=next(
                     (SORT_LABELS.get(k,k) for k,v in SORT_OPTS.items()
                      if v==sort), sort)
