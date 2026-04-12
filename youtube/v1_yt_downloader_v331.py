@@ -1707,7 +1707,7 @@ class Dashboard:
             self._log.write(f'Drive: {msg}')
             self._status.error(f'Drive 挂载失败: {msg}')
             self._flush_queue(); return
-        try: _check_cookie(Cfg.fix(cookie))
+        try: _check_cookie(cookie)
         except CookieError as e:
             self._log.write(f'Cookie 错误: {e}')
             self._status.error(f'Cookie: {e}')

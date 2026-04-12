@@ -6,5 +6,6 @@ import runpy
 
 ROOT = Path(__file__).resolve().parent
 TARGET = ROOT / "youtube" / "v1_yt_downloader_v331.py"
+if not TARGET.exists():
+    raise FileNotFoundError(f"Missing launcher target: {TARGET}")
 runpy.run_path(str(TARGET), run_name="__main__")
-
