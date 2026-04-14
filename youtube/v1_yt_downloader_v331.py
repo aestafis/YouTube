@@ -344,6 +344,28 @@ def _trim(t, mx=36):
         if w > mx: return t[:i]+'...'
     return t
 
+def _safe_name_token(s, mx=24, fallback='unknown'):
+    s = str(s or '').strip()
+    s = re.sub(r'[\\/:*?"<>|]','_',s)
+    s = re.sub(r'\s+','_',s)
+    s = re.sub(r'_+','_',s).strip('_')
+    if not s: s = fallback
+    return s[:mx]
+
+def _source_label_from_query(query):
+    itype,idata=_parse_input(query or '')
+    if itype=='keyword':
+        return _safe_name_token(idata,mx=18,fallback='关键词')
+    if itype=='single_url':
+        return '单URL'
+    if itype=='multi_url':
+        return '多URL'
+    if itype=='channel':
+        return '频道URL'
+    if itype=='channel_multi_warn':
+        return '多频道URL'
+    return 'URL'
+
 def _dedup(title, seen, thr=0.82):
     nt = re.sub(r'[^\w\u4e00-\u9fff]','',(title or '').lower())
     if not nt: return False
@@ -353,11 +375,13 @@ def _dedup(title, seen, thr=0.82):
     return False
 
 def _make_session_dir(base, mode, query, count):
-    now  = datetime.now().strftime('%Y%m%d_%H%M')
-    m    = re.sub(r'[^\w]','',mode)
-    k    = re.sub(r'[^\w\u4e00-\u9fff ]','',query)[:16].strip()
-    k    = re.sub(r'\s+','_',k) or 'url'
-    p    = os.path.join(Cfg.fix(base),f'{now}_{m}_{k}_{count}vids')
+    now=datetime.now()
+    dt =f'{now.year%100}年{now.month}月{now.day}日_{now.hour:02d}点{now.minute:02d}分'
+    direction=_safe_name_token(MODE_LABELS.get(mode,mode),mx=10,fallback='方向')
+    source=_source_label_from_query(query)
+    p=os.path.join(
+        Cfg.fix(base),
+        f'{dt}_{direction}_{source}_{int(count)}条')
     os.makedirs(p,exist_ok=True); return p
 
 def _embed_thumb(video_path, thumb_path):
@@ -406,6 +430,33 @@ def _rename_with_index(session_dir, vid_order):
                     except: pass
         except: pass
 
+def _package_by_video(session_dir, vid_order, log=None):
+    for idx,(vid,title) in enumerate(vid_order,1):
+        if not vid: continue
+        folder=f'{idx:02d}_{_safe_name_token(title,mx=40,fallback=vid)}'
+        folder_path=os.path.join(session_dir,folder)
+        try: os.makedirs(folder_path,exist_ok=True)
+        except Exception: continue
+        id_pfx=vid+'__'
+        for fn in list(os.listdir(session_dir)):
+            src=os.path.join(session_dir,fn)
+            if not os.path.isfile(src): continue
+            if not fn.startswith(id_pfx): continue
+            base_name=fn[len(id_pfx):] or fn
+            dst_name=base_name
+            dst=os.path.join(folder_path,dst_name)
+            i=1
+            while os.path.exists(dst):
+                stem,ext=os.path.splitext(base_name)
+                dst_name=f'{stem}_{i}{ext}'
+                dst=os.path.join(folder_path,dst_name)
+                i+=1
+            try:
+                os.replace(src,dst)
+                if log: log.write(f'pack: {folder}/{dst_name}')
+            except Exception:
+                pass
+
 def _write_index_txt(sd, mode, query, sort_lbl, items, done_ids):
     lines = ['=== YouTube Download Index ===',
              f'Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
@@ -418,7 +469,13 @@ def _write_index_txt(sd, mode, query, sort_lbl, items, done_ids):
         lines += [f'[{ok}] {i:02d}. [{v}] {x.get("title","")[:55]}',
                   f'      {x.get("channel","N/A")}',
                   f'      {x.get("url","")}','']
-    p = os.path.join(sd,'README_index.txt')
+    now=datetime.now()
+    dt=f'{now.year%100}年{now.month}月{now.day}日_{now.hour:02d}点{now.minute:02d}分'
+    mode_lbl=_safe_name_token(MODE_LABELS.get(mode,mode),mx=10,fallback='方向')
+    src_lbl=_source_label_from_query(query)
+    p = os.path.join(
+        sd,
+        f'索引_{mode_lbl}_{src_lbl}_{len(done_ids)}条_{dt}.txt')
     with open(p,'w',encoding='utf-8') as f: f.write('\n'.join(lines))
     return p
 
@@ -930,7 +987,8 @@ _THUMB_EXTS=frozenset({'.webp','.jpg','.jpeg','.png'})
 def _do_download(items, cookie_path, save_dir,
                  stop_ev, pause_ev, state, session_dir,
                  log, status, prog_cb=None, flush_cb=None,
-                 subtitle_on=False, table_mark_cb=None):
+                 subtitle_on=False, thumb_on=False,
+                 package_on=False, table_mark_cb=None):
 
     def _mark(vid,s,r=''):
         if table_mark_cb and vid:
@@ -948,6 +1006,8 @@ def _do_download(items, cookie_path, save_dir,
     log.write(f'Start {n} videos  FRAGS={Cfg.FRAGS} '
               f'chunk={Cfg.HTTP_CHUNK_MB}MB '
               f'subtitles={"on" if subtitle_on else "off"} '
+              f'thumbs={"on" if thumb_on else "off"} '
+              f'pack={"on" if package_on else "off"} '
               f'maxsize={"unlimited" if Cfg.MAX_MB==0 else str(Cfg.MAX_MB)+"MB"}')
     log.write(f'Dir: {session_dir}')
     if flush_cb: flush_cb()
@@ -1010,7 +1070,7 @@ def _do_download(items, cookie_path, save_dir,
             'cookiefile':cp,
             'concurrent_fragment_downloads':Cfg.FRAGS,
             'http_chunk_size':Cfg.HTTP_CHUNK_MB*1024*1024,
-            'writethumbnail':True,
+            'writethumbnail':thumb_on,
             'writesubtitles':subtitle_on,
             'writeautomaticsub':subtitle_on,
             'subtitleslangs':(['zh-Hans','zh-Hant','en']
@@ -1089,11 +1149,16 @@ def _do_download(items, cookie_path, save_dir,
                 if flush_cb: flush_cb()
             else:
                 vid_files=[]; thumb_files=[]; copy_ok=True
+                detected_vid=''
                 for fn in tmp_files:
                     if '._emb_' in fn: continue
                     src=os.path.join(Cfg.TMP_DIR,fn)
                     dst=os.path.join(session_dir,fn)
                     ext=os.path.splitext(fn)[1].lower()
+                    if not detected_vid and '__' in fn:
+                        cand=fn.split('__',1)[0]
+                        if _is_valid_video_id(cand):
+                            detected_vid=cand
                     try:
                         shutil.copy2(src,dst); sz=os.path.getsize(dst)
                         try: os.remove(src)
@@ -1111,23 +1176,15 @@ def _do_download(items, cookie_path, save_dir,
                 main_ok=copy_ok and any(sz>100*1024
                                         for _,_,sz in vid_files)
 
-                for vfn,vdst,_ in vid_files:
-                    v_stem=os.path.splitext(vdst)[0]
-                    for entry in list(thumb_files):
-                        tfn,tdst,_tsz=entry
-                        if os.path.splitext(tdst)[0]==v_stem:
-                            if _embed_thumb(vdst,tdst):
-                                log.write(f'thumb embedded: {vfn}')
-                                thumb_files.remove(entry)
-                            break
-
                 if main_ok:
-                    state.done(vid,title=title,
+                    vid_key=(vid or detected_vid or '')
+                    state.done(vid_key,title=title,
                                channel=ch,session=session_name)
-                    done+=1; done_ids.add(vid)
-                    vid_order.append((vid,title))
+                    done+=1
+                    if vid_key: done_ids.add(vid_key)
+                    vid_order.append((vid_key,title))
                     log.write(f'+ done [{done}/{n}]: {title}')
-                    _mark(vid,'done')
+                    _mark(vid_key or vid,'done')
                 else:
                     log.write(f'x video missing or too small: {title}')
                     state.fail(vid,title,'video_small'); fails+=1
@@ -1151,7 +1208,11 @@ def _do_download(items, cookie_path, save_dir,
                 log.write('[resumed]')
                 if flush_cb: flush_cb()
 
-    try: _rename_with_index(session_dir,vid_order)
+    try:
+        if package_on:
+            _package_by_video(session_dir,vid_order,log)
+        else:
+            _rename_with_index(session_dir,vid_order)
     except: pass
     try: state._save()
     except: pass
@@ -1180,12 +1241,27 @@ _DRAG_JS = """
 (function(){
   if(window._yt_drag_v331) return;
   window._yt_drag_v331 = true;
-  var D={on:false,startIdx:-1,curIdx:-1,targetVal:null};
+  var D={on:false,startIdx:-1,curIdx:-1,targetVal:null,oldSel:''};
 
   function _rowCbs(){
     var c=document.querySelector('.yt-rows-box');
     if(!c) return [];
     return Array.from(c.querySelectorAll('input[type=checkbox]'));
+  }
+  function _idxFromPoint(x,y){
+    var cbs=_rowCbs(); if(!cbs.length) return -1;
+    for(var i=0;i<cbs.length;i++){
+      var r=cbs[i].getBoundingClientRect();
+      if(y>=r.top && y<=r.bottom) return i;
+    }
+    var best=-1,bestD=1e9;
+    for(var j=0;j<cbs.length;j++){
+      var r2=cbs[j].getBoundingClientRect();
+      var cy=(r2.top+r2.bottom)/2;
+      var d=Math.abs(y-cy);
+      if(d<bestD){bestD=d;best=j;}
+    }
+    return best;
   }
   function _getCbInRows(el){
     if(!el) return null;
@@ -1204,14 +1280,15 @@ _DRAG_JS = """
     var cb=_getCbInRows(e.target); if(!cb) return;
     var cbs=_rowCbs(); var idx=cbs.indexOf(cb); if(idx<0) return;
     D.on=true; D.startIdx=idx; D.curIdx=idx; D.targetVal=!cb.checked;
+    D.oldSel=document.body.style.userSelect || '';
+    document.body.style.userSelect='none';
     cb.checked=D.targetVal; e.preventDefault();
   },{capture:true,passive:false});
 
   document.addEventListener('pointermove',function(e){
     if(!D.on) return;
-    var el=document.elementFromPoint(e.clientX,e.clientY);
-    var cb2=_getCbInRows(el); if(!cb2) return;
-    var cbs=_rowCbs(); var idx=cbs.indexOf(cb2); if(idx<0) return;
+    var idx=_idxFromPoint(e.clientX,e.clientY); if(idx<0) return;
+    var cbs=_rowCbs();
     D.curIdx=idx;
     var lo=Math.min(D.startIdx,idx),hi=Math.max(D.startIdx,idx);
     cbs.forEach(function(c,i){if(i>=lo&&i<=hi) c.checked=D.targetVal;});
@@ -1219,12 +1296,16 @@ _DRAG_JS = """
 
   document.addEventListener('pointerup',function(){
     if(!D.on){D.on=false;return;} D.on=false;
+    document.body.style.userSelect=D.oldSel;
     var lo=Math.min(D.startIdx,D.curIdx),hi=Math.max(D.startIdx,D.curIdx);
     try{google.colab.kernel.invokeFunction(
       '_yt_drag_commit',[lo,hi,D.targetVal?1:0],{});}catch(e){}
   },true);
 
-  document.addEventListener('pointercancel',function(){D.on=false;},true);
+  document.addEventListener('pointercancel',function(){
+    D.on=false;
+    document.body.style.userSelect=D.oldSel;
+  },true);
 })();
 </script>
 """
@@ -1323,7 +1404,8 @@ class PreviewTable:
         self._saved_ids     = set()
         self._is_downloading= False
         self._saved_toggled = False
-        self._rows_box = W.VBox(layout=W.Layout(width='100%'))
+        self._rows_box = W.VBox(layout=W.Layout(
+            width='100%',height='320px',overflow_y='auto',overflow_x='hidden'))
         self.container = W.VBox(layout=W.Layout(width='100%'))
 
     def set_saved_ids(self,ids): self._saved_ids=set(ids)
@@ -1683,6 +1765,14 @@ class Dashboard:
             value=False,description='下载字幕',indent=False,
             layout=L(width='auto'),
             tooltip='下载字幕 zh-Hans/zh-Hant/en')
+        w_thumb=W.Checkbox(
+            value=False,description='下载缩略图',indent=False,
+            layout=L(width='auto'),
+            tooltip='勾选后输出缩略图文件（jpg/webp/png）')
+        w_pack=W.Checkbox(
+            value=False,description='单视频分包',indent=False,
+            layout=L(width='auto'),
+            tooltip='勾选后每个视频相关文件放入独立子文件夹')
         w_skip_saved=W.Checkbox(
             value=True,description='跳过已下载',indent=False,
             layout=L(width='auto'),
@@ -1704,6 +1794,10 @@ class Dashboard:
                        layout=L(align_items='center')),
                 W.HBox([w_subtitle,
                         W.HTML('&nbsp;&nbsp;'),
+                        w_thumb,
+                        W.HTML('&nbsp;&nbsp;'),
+                        w_pack,
+                        W.HTML('&nbsp;&nbsp;'),
                         w_skip_saved],
                        layout=L(align_items='center')),
                 W.HBox([w_reset_btn,W.HTML('&nbsp;'),w_reset_idx],
@@ -1715,32 +1809,39 @@ class Dashboard:
         acc_set.selected_index=None
         self._w.update({'cookie':w_cookie,'save':w_save,
                         'maxmb':w_maxmb,'subtitle':w_subtitle,
+                        'thumb':w_thumb,'package':w_pack,
                         'skip_saved':w_skip_saved})
 
-        w_prev=W.Button(description='搜索',button_style='info',
-                        layout=L(width='80px'),tooltip='搜索并显示预览')
-        w_dl=W.Button(description='下载',button_style='success',
-                      layout=L(width='90px'),tooltip='下载勾选的视频')
+        w_prev=W.Button(description='搜索',
+                        layout=L(width='88px',height='34px'),
+                        style={'button_color':'#00acc1','font_weight':'600'},
+                        tooltip='搜索并显示预览')
+        w_dl=W.Button(description='下载',
+                      layout=L(width='94px',height='34px'),
+                      style={'button_color':'#43a047','font_weight':'600'},
+                      tooltip='下载勾选的视频')
         w_pause=W.Button(description='暂停',
-                         layout=L(width='72px'),disabled=True,
-                         style={'button_color':'#f57f17'},
+                         layout=L(width='76px',height='34px'),disabled=True,
+                         style={'button_color':'#bf6f18','font_weight':'600'},
                          tooltip='当前视频下完后暂停')
-        w_resume=W.Button(description='继续',button_style='success',
-                          layout=L(width='72px'),disabled=True,
+        w_resume=W.Button(description='继续',
+                          layout=L(width='76px',height='34px'),disabled=True,
+                          style={'button_color':'#2e7d32','font_weight':'600'},
                           tooltip='继续下载')
-        w_stop=W.Button(description='终止',button_style='danger',
-                        layout=L(width='72px'),disabled=True,
+        w_stop=W.Button(description='终止',
+                        layout=L(width='76px',height='34px'),disabled=True,
+                        style={'button_color':'#c0392b','font_weight':'600'},
                         tooltip='终止下载')
         w_refresh=W.Button(description='刷新',
-                           layout=L(width='72px'),
-                           style={'button_color':'#607d8b'},
+                           layout=L(width='76px',height='34px'),
+                           style={'button_color':'#607d8b','font_weight':'600'},
                            tooltip='状态长时间不更新时点击，重启2s定时器')
         w_clear_p=W.Button(description='清空列表',
-                           layout=L(width='80px'),
-                           style={'button_color':'#37474f'})
+                           layout=L(width='88px',height='34px'),
+                           style={'button_color':'#37474f','font_weight':'600'})
         w_clear_l=W.Button(description='清空日志',
-                           layout=L(width='80px'),
-                           style={'button_color':'#37474f'})
+                           layout=L(width='88px',height='34px'),
+                           style={'button_color':'#37474f','font_weight':'600'})
         self._w.update({'prev':w_prev,'dl':w_dl,
                         'pause':w_pause,'resume':w_resume,'stop':w_stop})
 
@@ -1783,9 +1884,9 @@ class Dashboard:
 
         w_scroll=W.Box(
             [self._table.container],
-            layout=L(width='100%',height='420px',overflow_y='scroll',
-                     border='1px solid rgba(255,255,255,0.12)',
-                     border_radius='4px'))
+            layout=L(width='100%',height='420px',overflow='hidden',
+                      border='1px solid rgba(255,255,255,0.12)',
+                      border_radius='4px'))
 
         def _sep(t):
             return W.HTML(
@@ -1809,6 +1910,7 @@ class Dashboard:
             '&nbsp;|&nbsp;[v]=已下载(默认不勾选)&nbsp;'
             '[>]=下载中&nbsp;[+]=完成&nbsp;[x]=失败'
             '&nbsp;|&nbsp;拖拽复选框可批量勾选'
+            '&nbsp;|&nbsp;字幕/缩略图/分包可在设置中勾选'
             '</div>')
         panel_row=W.HBox(
             [acc_mod,acc_set],
@@ -1958,6 +2060,8 @@ class Dashboard:
         self._flush_queue()
 
         subtitle_on =self._w['subtitle'].value
+        thumb_on    =self._w['thumb'].value
+        package_on  =self._w['package'].value
         skip_saved  =self._w['skip_saved'].value
         search_first=False
         itype,idata =_parse_input(query)
@@ -2064,7 +2168,7 @@ class Dashboard:
                         self._auto_flush(); return
 
                 sd=_make_session_dir(
-                    save,self._mode_name,query[:20],len(items))
+                    save,self._mode_name,query,len(items))
                 self._log.write(
                     f'开始下载 {len(items)} 条视频 → {sd}')
                 self._auto_flush()
@@ -2077,6 +2181,8 @@ class Dashboard:
                     prog_cb     =_prog,
                     flush_cb    =self._auto_flush,
                     subtitle_on =subtitle_on,
+                    thumb_on    =thumb_on,
+                    package_on  =package_on,
                     table_mark_cb=self._table.mark)
 
                 self._index.invalidate()
@@ -2084,7 +2190,7 @@ class Dashboard:
                     (SORT_LABELS.get(k,k) for k,v in SORT_OPTS.items()
                      if v==sort), sort)
                 _write_index_txt(
-                    sd,self._mode_name,query[:40],sl_lbl,items,done_ids)
+                    sd,self._mode_name,query,sl_lbl,items,done_ids)
                 if sw=='user_stop': self._status.stopped(done,fails)
                 else:               self._status.done(done,fails,tb,elapsed)
 
