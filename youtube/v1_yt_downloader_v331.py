@@ -1239,9 +1239,19 @@ def _do_download(items, cookie_path, save_dir,
 _DRAG_JS = """
 <script>
 (function(){
+  if(!document.getElementById('yt-v331-style-fix')){
+    var st=document.createElement('style');
+    st.id='yt-v331-style-fix';
+    st.textContent=
+      '.yt-rows-box .widget-hbox{overflow:hidden !important;}'+
+      '.yt-rows-box .widget-box{overflow:hidden !important;}'+
+      '.yt-rows-box .widget-html-content{overflow:hidden !important;}'+
+      '.yt-rows-box input[type=checkbox]{cursor:pointer;}';
+    document.head.appendChild(st);
+  }
   if(window._yt_drag_v331) return;
   window._yt_drag_v331 = true;
-  var D={on:false,startIdx:-1,curIdx:-1,targetVal:null,oldSel:''};
+  var dragState={on:false,startIdx:-1,curIdx:-1,targetVal:null,oldSel:''};
 
   function _rowCbs(){
     var c=document.querySelector('.yt-rows-box');
@@ -1279,32 +1289,41 @@ _DRAG_JS = """
   document.addEventListener('pointerdown',function(e){
     var cb=_getCbInRows(e.target); if(!cb) return;
     var cbs=_rowCbs(); var idx=cbs.indexOf(cb); if(idx<0) return;
-    D.on=true; D.startIdx=idx; D.curIdx=idx; D.targetVal=!cb.checked;
-    D.oldSel=document.body.style.userSelect || '';
+    dragState.on=true; dragState.startIdx=idx; dragState.curIdx=idx;
+    dragState.targetVal=!cb.checked;
+    dragState.oldSel=document.body.style.userSelect || '';
     document.body.style.userSelect='none';
-    cb.checked=D.targetVal; e.preventDefault();
+    cb.checked=dragState.targetVal; e.preventDefault();
   },{capture:true,passive:false});
 
   document.addEventListener('pointermove',function(e){
-    if(!D.on) return;
+    if(!dragState.on) return;
     var idx=_idxFromPoint(e.clientX,e.clientY); if(idx<0) return;
     var cbs=_rowCbs();
-    D.curIdx=idx;
-    var lo=Math.min(D.startIdx,idx),hi=Math.max(D.startIdx,idx);
-    cbs.forEach(function(c,i){if(i>=lo&&i<=hi) c.checked=D.targetVal;});
+    dragState.curIdx=idx;
+    var lo=Math.min(dragState.startIdx,idx),hi=Math.max(dragState.startIdx,idx);
+    cbs.forEach(function(c,i){if(i>=lo&&i<=hi) c.checked=dragState.targetVal;});
   },{capture:true,passive:true});
 
   document.addEventListener('pointerup',function(){
-    if(!D.on){D.on=false;return;} D.on=false;
-    document.body.style.userSelect=D.oldSel;
-    var lo=Math.min(D.startIdx,D.curIdx),hi=Math.max(D.startIdx,D.curIdx);
+    if(!dragState.on){dragState.on=false;return;} dragState.on=false;
+    document.body.style.userSelect=dragState.oldSel;
+    var lo=Math.min(dragState.startIdx,dragState.curIdx);
+    var hi=Math.max(dragState.startIdx,dragState.curIdx);
     try{google.colab.kernel.invokeFunction(
-      '_yt_drag_commit',[lo,hi,D.targetVal?1:0],{});}catch(e){}
+      '_yt_drag_commit',[lo,hi,dragState.targetVal?1:0],{});}catch(e){}
+  },true);
+
+  document.addEventListener('click',function(e){
+    if(!_getCbInRows(e.target)) return;
+    if(e.detail===0) return; // keep keyboard accessibility (Space/Enter)
+    e.preventDefault();
+    e.stopPropagation();
   },true);
 
   document.addEventListener('pointercancel',function(){
-    D.on=false;
-    document.body.style.userSelect=D.oldSel;
+    dragState.on=false;
+    document.body.style.userSelect=dragState.oldSel;
   },true);
 })();
 </script>
@@ -1453,12 +1472,12 @@ class PreviewTable:
 
             cw=W.HTML(
                 value=_row_html(i,r,init_st,''),
-                layout=W.Layout(flex='1',min_width='0'))
+                layout=W.Layout(flex='1',min_width='0',overflow='hidden'))
             self._content_w.append(cw)
             rows.append(W.HBox(
                 [cb,cw],
                 layout=W.Layout(width='100%',align_items='center',
-                                min_height='52px')))
+                                min_height='52px',overflow='hidden')))
 
         # 预览行放入专用容器，JS 只扫此容器
         self._rows_box.children=tuple(rows)
