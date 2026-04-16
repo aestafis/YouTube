@@ -183,6 +183,7 @@ KEYWORD_MODULES = {
         '漫改对比':      ('manga vs anime adaptation comparison', '漫改对比'),
     },
     '娱乐': {
+        '热门电影':      ('trending movie review trailer 2026',      '热门电影'),
         '电影预告':      ('movie trailer 2026',                   '电影预告'),
         '深度纪录片':    ('documentary full length 2026',         '深度纪录片'),
         '喜剧短片':      ('comedy sketch 2026',                   '喜剧短片'),
@@ -987,7 +988,7 @@ _THUMB_EXTS=frozenset({'.webp','.jpg','.jpeg','.png'})
 def _do_download(items, cookie_path, save_dir,
                  stop_ev, pause_ev, state, session_dir,
                  log, status, prog_cb=None, flush_cb=None,
-                 subtitle_on=False, thumb_on=False,
+                 subtitle_on=False, thumb_on=False, video_on=True,
                  package_on=False, table_mark_cb=None):
 
     def _mark(vid,s,r=''):
@@ -1005,6 +1006,7 @@ def _do_download(items, cookie_path, save_dir,
 
     log.write(f'Start {n} videos  FRAGS={Cfg.FRAGS} '
               f'chunk={Cfg.HTTP_CHUNK_MB}MB '
+              f'video={"on" if video_on else "off"} '
               f'subtitles={"on" if subtitle_on else "off"} '
               f'thumbs={"on" if thumb_on else "off"} '
               f'pack={"on" if package_on else "off"} '
@@ -1068,6 +1070,7 @@ def _do_download(items, cookie_path, save_dir,
         opts={
             'quiet':False,'no_warnings':False,'logger':_Logger(),
             'cookiefile':cp,
+            'skip_download':(not video_on),
             'concurrent_fragment_downloads':Cfg.FRAGS,
             'http_chunk_size':Cfg.HTTP_CHUNK_MB*1024*1024,
             'writethumbnail':thumb_on,
@@ -1246,12 +1249,16 @@ _DRAG_JS = """
       '.yt-rows-box .widget-hbox{overflow:hidden !important;}'+
       '.yt-rows-box .widget-box{overflow:hidden !important;}'+
       '.yt-rows-box .widget-html-content{overflow:hidden !important;}'+
+      '.yt-rows-box{scrollbar-width:none;-ms-overflow-style:none;}'+
+      '.yt-rows-box::-webkit-scrollbar{width:0 !important;height:0 !important;}'+
       '.yt-rows-box input[type=checkbox]{cursor:pointer;}';
     document.head.appendChild(st);
   }
   if(window._yt_drag_v331) return;
   window._yt_drag_v331 = true;
-  var dragState={on:false,startIdx:-1,curIdx:-1,targetVal:null,oldSel:''};
+  var dragState={
+    on:false,startIdx:-1,curIdx:-1,minIdx:-1,maxIdx:-1,targetVal:null,oldSel:''
+  };
 
   function _rowCbs(){
     var c=document.querySelector('.yt-rows-box');
@@ -1290,6 +1297,7 @@ _DRAG_JS = """
     var cb=_getCbInRows(e.target); if(!cb) return;
     var cbs=_rowCbs(); var idx=cbs.indexOf(cb); if(idx<0) return;
     dragState.on=true; dragState.startIdx=idx; dragState.curIdx=idx;
+    dragState.minIdx=idx; dragState.maxIdx=idx;
     dragState.targetVal=!cb.checked;
     dragState.oldSel=document.body.style.userSelect || '';
     document.body.style.userSelect='none';
@@ -1301,6 +1309,8 @@ _DRAG_JS = """
     var idx=_idxFromPoint(e.clientX,e.clientY); if(idx<0) return;
     var cbs=_rowCbs();
     dragState.curIdx=idx;
+    if(dragState.minIdx<0||idx<dragState.minIdx) dragState.minIdx=idx;
+    if(dragState.maxIdx<0||idx>dragState.maxIdx) dragState.maxIdx=idx;
     var lo=Math.min(dragState.startIdx,idx),hi=Math.max(dragState.startIdx,idx);
     cbs.forEach(function(c,i){if(i>=lo&&i<=hi) c.checked=dragState.targetVal;});
   },{capture:true,passive:true});
@@ -1308,10 +1318,13 @@ _DRAG_JS = """
   document.addEventListener('pointerup',function(){
     if(!dragState.on){dragState.on=false;return;} dragState.on=false;
     document.body.style.userSelect=dragState.oldSel;
-    var lo=Math.min(dragState.startIdx,dragState.curIdx);
-    var hi=Math.max(dragState.startIdx,dragState.curIdx);
+    var lo=(dragState.minIdx>=0)?dragState.minIdx
+      :Math.min(dragState.startIdx,dragState.curIdx);
+    var hi=(dragState.maxIdx>=0)?dragState.maxIdx
+      :Math.max(dragState.startIdx,dragState.curIdx);
     try{google.colab.kernel.invokeFunction(
       '_yt_drag_commit',[lo,hi,dragState.targetVal?1:0],{});}catch(e){}
+    dragState.minIdx=-1; dragState.maxIdx=-1;
   },true);
 
   document.addEventListener('click',function(e){
@@ -1324,6 +1337,7 @@ _DRAG_JS = """
   document.addEventListener('pointercancel',function(){
     dragState.on=false;
     document.body.style.userSelect=dragState.oldSel;
+    dragState.minIdx=-1; dragState.maxIdx=-1;
   },true);
 })();
 </script>
@@ -1784,6 +1798,10 @@ class Dashboard:
             value=False,description='下载字幕',indent=False,
             layout=L(width='auto'),
             tooltip='下载字幕 zh-Hans/zh-Hant/en')
+        w_video=W.Checkbox(
+            value=True,description='下载视频',indent=False,
+            layout=L(width='auto'),
+            tooltip='默认开启；关闭后可仅下载字幕/缩略图')
         w_thumb=W.Checkbox(
             value=False,description='下载缩略图',indent=False,
             layout=L(width='auto'),
@@ -1813,6 +1831,8 @@ class Dashboard:
                        layout=L(align_items='center')),
                 W.HBox([w_subtitle,
                         W.HTML('&nbsp;&nbsp;'),
+                        w_video,
+                        W.HTML('&nbsp;&nbsp;'),
                         w_thumb,
                         W.HTML('&nbsp;&nbsp;'),
                         w_pack,
@@ -1828,6 +1848,7 @@ class Dashboard:
         acc_set.selected_index=None
         self._w.update({'cookie':w_cookie,'save':w_save,
                         'maxmb':w_maxmb,'subtitle':w_subtitle,
+                        'video':w_video,
                         'thumb':w_thumb,'package':w_pack,
                         'skip_saved':w_skip_saved})
 
@@ -1929,7 +1950,7 @@ class Dashboard:
             '&nbsp;|&nbsp;[v]=已下载(默认不勾选)&nbsp;'
             '[>]=下载中&nbsp;[+]=完成&nbsp;[x]=失败'
             '&nbsp;|&nbsp;拖拽复选框可批量勾选'
-            '&nbsp;|&nbsp;字幕/缩略图/分包可在设置中勾选'
+            '&nbsp;|&nbsp;视频/字幕/缩略图/分包可在设置中勾选'
             '</div>')
         panel_row=W.HBox(
             [acc_mod,acc_set],
@@ -2079,9 +2100,14 @@ class Dashboard:
         self._flush_queue()
 
         subtitle_on =self._w['subtitle'].value
+        video_on    =self._w['video'].value
         thumb_on    =self._w['thumb'].value
         package_on  =self._w['package'].value
         skip_saved  =self._w['skip_saved'].value
+        if (not video_on) and (not subtitle_on) and (not thumb_on):
+            self._log.write('请至少勾选一个输出：视频 / 字幕 / 缩略图')
+            self._status.error('无可下载输出')
+            self._flush_queue(); return
         search_first=False
         itype,idata =_parse_input(query)
 
@@ -2200,6 +2226,7 @@ class Dashboard:
                     prog_cb     =_prog,
                     flush_cb    =self._auto_flush,
                     subtitle_on =subtitle_on,
+                    video_on    =video_on,
                     thumb_on    =thumb_on,
                     package_on  =package_on,
                     table_mark_cb=self._table.mark)
