@@ -107,7 +107,7 @@ class Cfg:
     TMP_DIR  = '/content/local_temp'
     STATE    = os.path.join(META_DIR,'yt_state.json')
     INDEX    = os.path.join(META_DIR,'yt_index.json')
-    FRAGS    = 16
+    FRAGS    = 12
     DEDUP    = 0.82
     MAX_MB   = 0
     HTTP_CHUNK_MB         = 10
@@ -935,6 +935,32 @@ def _channel_url_normalize(url):
         r'/(featured|shorts|streams|community|about|playlists)$','',url)
     return url+'/videos'
 
+def _minutes_range_to_seconds(minutes_range):
+    try:
+        lo,hi=minutes_range
+        lo=max(0,int(lo))*60
+        hi=max(0,int(hi))*60
+        if hi<lo: lo,hi=hi,lo
+        return lo,hi
+    except Exception:
+        return None
+
+def _duration_match(ds,sec_range):
+    if not sec_range: return True
+    if ds<=0: return False
+    lo,hi=sec_range
+    return (ds>=lo) and (ds<=hi)
+
+def _filter_items_by_duration(items,sec_range):
+    if not sec_range: return items
+    out=[]
+    for x in (items or []):
+        try: ds=int(x.get('dur_s') or 0)
+        except: ds=0
+        if _duration_match(ds,sec_range):
+            out.append(x)
+    return out
+
 def _is_valid_video_id(vid):
     """Return True if id matches canonical YouTube video-id format."""
     return bool(_YT_VIDEO_ID_RE.fullmatch((vid or '').strip()))
@@ -1064,7 +1090,8 @@ def _do_search_raw(url, pool_size, cookie_path):
     return entries or []
 
 def _filter_entries(entries, count, mode_cfg,
-                    saved_ids=None, skip_saved=False):
+                    saved_ids=None, skip_saved=False,
+                    sec_range=None):
     res=[]; seen_ids=set(); seen_t=[]; skipped=0
     for e in entries:
         if len(res)>=count: break
@@ -1078,10 +1105,13 @@ def _filter_entries(entries, count, mode_cfg,
         if AD_KW.search(title): continue
         if mode_cfg.get('neg_kw') and NEG_KW.search(title): continue
         if _dedup(title,seen_t): continue
-        mn=mode_cfg.get('min_dur',0); mx=mode_cfg.get('max_dur')
-        if ds>0:
-            if mn and ds<mn: continue
-            if mx and ds>mx: continue
+        if sec_range:
+            if not _duration_match(ds,sec_range): continue
+        else:
+            mn=mode_cfg.get('min_dur',0); mx=mode_cfg.get('max_dur')
+            if ds>0:
+                if mn and ds<mn: continue
+                if mx and ds>mx: continue
         seen_ids.add(vid); seen_t.append(title)
         u=e.get('url','') or e.get('webpage_url','')
         if u and not u.startswith('http'):
@@ -1098,17 +1128,19 @@ def _filter_entries(entries, count, mode_cfg,
     return res,skipped
 
 def _do_search(url, count, cookie_path, mode_cfg,
-               cancel_ev=None, saved_ids=None, skip_saved=False):
+               cancel_ev=None, saved_ids=None, skip_saved=False,
+               sec_range=None):
     entries=_do_search_raw(url,count*4,cookie_path)
     if cancel_ev and cancel_ev.is_set(): return [],0
-    res,skipped=_filter_entries(entries,count,mode_cfg,saved_ids,skip_saved)
+    res,skipped=_filter_entries(
+        entries,count,mode_cfg,saved_ids,skip_saved,sec_range=sec_range)
     rounds=0
     while len(res)<count*Cfg.SEARCH_FALLBACK_RATIO and rounds<2:
         if cancel_ev and cancel_ev.is_set(): break
         rounds+=1
         entries2=_do_search_raw(url,count*(4+rounds*2),cookie_path)
         res,skipped=_filter_entries(
-            entries2,count,mode_cfg,saved_ids,skip_saved)
+            entries2,count,mode_cfg,saved_ids,skip_saved,sec_range=sec_range)
     return res,skipped
 
 
@@ -1419,7 +1451,26 @@ _DRAG_JS = """
       'box-shadow:inset 0 1px 0 rgba(255,255,255,0.04),'+
       '0 8px 20px rgba(0,0,0,0.18);backdrop-filter:blur(8px);}'+
       '.yt-rows-box::-webkit-scrollbar{width:0 !important;height:0 !important;}'+
-      '.yt-rows-box input[type=checkbox]{cursor:pointer;}';
+      '.yt-rows-box input[type=checkbox]{cursor:pointer;}'+
+      '.widget-button button{border-radius:12px !important;'+
+      'box-shadow:0 8px 18px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.16);'+
+      'border:1px solid rgba(255,255,255,0.12) !important;}'+
+      '.widget-text input,.widget-textarea textarea,.widget-inttext input{'+
+      'border-radius:12px !important;background:rgba(255,255,255,0.05) !important;'+
+      'border:1px solid rgba(255,255,255,0.16) !important;'+
+      'box-shadow:inset 0 1px 0 rgba(255,255,255,0.10), 0 8px 20px rgba(0,0,0,0.16);}'+
+      '.widget-slider .noUi-target{border-radius:999px !important;'+
+      'border:1px solid rgba(255,255,255,0.22) !important;'+
+      'background:rgba(255,255,255,0.08) !important;'+
+      'box-shadow:inset 0 1px 0 rgba(255,255,255,0.16),0 8px 18px rgba(0,0,0,0.16);}'+
+      '.widget-slider .noUi-handle{border-radius:999px !important;'+
+      'background:linear-gradient(180deg,#e3f2fd,#90caf9) !important;'+
+      'border:1px solid rgba(255,255,255,0.9) !important;'+
+      'box-shadow:0 8px 16px rgba(0,0,0,0.24) !important;}'+
+      '.widget-accordion .p-Accordion-child{'+
+      'border-radius:14px !important;border:1px solid rgba(255,255,255,0.14) !important;'+
+      'background:rgba(255,255,255,0.04) !important;'+
+      'box-shadow:0 10px 24px rgba(0,0,0,0.2) !important;backdrop-filter:blur(10px);}';
     document.head.appendChild(st);
   }
   if(window._yt_drag_v331) return;
@@ -1894,6 +1945,20 @@ class Dashboard:
             description='数量:',
             style={'description_width':'46px'},
             layout=L(width='46%'),continuous_update=False)
+        w_dur_enable=W.Checkbox(
+            value=False,description='时长范围',indent=False,
+            layout=L(width='auto'),
+            tooltip='默认不限时长；勾选后按分钟范围过滤')
+        w_dur_range=W.IntRangeSlider(
+            value=(0,600),min=0,max=600,step=5,
+            description='分钟:',
+            style={'description_width':'46px'},
+            layout=L(width='64%'),continuous_update=False,
+            disabled=True)
+        def _on_dur_enable(ch):
+            on=bool(ch['new'])
+            w_dur_range.disabled=not on
+        w_dur_enable.observe(_on_dur_enable,names='value')
         self._w['sort']=w_sort; self._w['count']=w_count
 
         mod_rows=[]
@@ -2036,6 +2101,9 @@ class Dashboard:
                         w_split_tokens,W.HTML('&nbsp;&nbsp;'),
                         w_json_index],
                        layout=L(align_items='center')),
+                W.HBox([w_dur_enable,W.HTML('&nbsp;&nbsp;'),
+                        w_dur_range],
+                       layout=L(align_items='center')),
                 W.HBox([w_reset_btn,W.HTML('&nbsp;'),w_reset_idx],
                        layout=L(align_items='center')),
             ],layout=L(padding='6px'))],
@@ -2050,7 +2118,9 @@ class Dashboard:
                         'skip_saved':w_skip_saved,
                         'sub_split':w_sub_split,
                         'sub_split_tokens':w_split_tokens,
-                        'json_index':w_json_index})
+                        'json_index':w_json_index,
+                        'dur_enable':w_dur_enable,
+                        'dur_range':w_dur_range})
 
         w_prev=W.Button(description='搜索',
                         layout=L(width='88px',height='34px'),
@@ -2205,6 +2275,9 @@ class Dashboard:
 
         itype,idata=_parse_input(query)
         skip_saved=self._w['skip_saved'].value  # 线程外读取
+        dur_on=bool(self._w['dur_enable'].value)
+        dur_range=tuple(self._w['dur_range'].value)
+        sec_range=_minutes_range_to_seconds(dur_range) if dur_on else None
 
         self._cancel_search_ev.set()
         self._cancel_search_ev=threading.Event()
@@ -2223,6 +2296,11 @@ class Dashboard:
                 self._log.write(
                     f'已存记录: {len(saved)}  '
                     f'{"跳过已存" if skip_saved else "包含已存"}')
+                if sec_range:
+                    self._log.write(
+                        f'时长过滤: {dur_range[0]}-{dur_range[1]} 分钟')
+                else:
+                    self._log.write('时长过滤: 不限')
 
                 if itype=='channel_multi_warn':
                     self._log.write(
@@ -2232,6 +2310,7 @@ class Dashboard:
                         idata[0],count,cookie_file,cancel_ev)
                     if cancelled:
                         self._status.cancelled(); return
+                    res=_filter_items_by_duration(res,sec_range)
                     mode='频道'
 
                 elif itype=='keyword':
@@ -2241,7 +2320,7 @@ class Dashboard:
                     res,skipped=_do_search(
                         url,count,cookie_file,self._mode_cfg,cancel_ev,
                         saved_ids=saved if skip_saved else None,
-                        skip_saved=skip_saved)
+                        skip_saved=skip_saved,sec_range=sec_range)
                     mode=self._mode_name
 
                 elif itype=='single_url':
@@ -2249,6 +2328,7 @@ class Dashboard:
                     self._log.write(f'读取URL: {_trim(idata,60)}')
                     item=_fetch_url_info(idata,cookie_file,cancel_ev)
                     res=[item] if item else []
+                    res=_filter_items_by_duration(res,sec_range)
                     mode='URL'
 
                 elif itype=='multi_url':
@@ -2258,6 +2338,7 @@ class Dashboard:
                         self._log.write(f'  {d}/{t}')
                         self._auto_flush()
                     res=_fetch_multi_urls(idata,cookie_file,cancel_ev,_prog)
+                    res=_filter_items_by_duration(res,sec_range)
                     mode=f'{len(res)}个URL'
 
                 elif itype=='channel':
@@ -2267,6 +2348,7 @@ class Dashboard:
                         idata,count,cookie_file,cancel_ev)
                     if cancelled:
                         self._status.cancelled(); return
+                    res=_filter_items_by_duration(res,sec_range)
                     mode='频道'
 
                 if cancel_ev.is_set():
