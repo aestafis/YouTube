@@ -2036,18 +2036,20 @@ class Dashboard:
 
         acc_mod=W.Accordion(
             children=[W.VBox([
-                W.HTML('<div style="font-size:10px;color:#666;'
-                       'padding:2px 0 4px;border-bottom:1px solid '
-                       'rgba(255,255,255,0.1);margin-bottom:4px">'
-                       '点击自动填入搜索词 · 悬停看说明'
-                       ' · 年份自动替换</div>'),
                 W.VBox(mod_rows)
-            ],layout=L(padding='4px'))],
+            ],layout=L(padding='2px 4px 4px'))],
             layout=L(width=_ACCORDION_PANEL_WIDTH,margin='2px 0'))
         try:    acc_mod.titles=('固定模块',)
         except: acc_mod.set_title(0,'固定模块')
         acc_mod.selected_index=None
         self._acc_mod=acc_mod
+        mod_block=W.Box(
+            [acc_mod],
+            layout=L(width=_ACCORDION_PANEL_WIDTH,
+                     padding='4px 6px',
+                     border='1px solid rgba(255,255,255,0.10)',
+                     border_radius='8px',
+                     background='rgba(255,255,255,0.02)'))
 
         w_cookie=W.Text(
             value=Cfg.COOKIE,description='Cookie路径:',
@@ -2165,6 +2167,13 @@ class Dashboard:
         try:    acc_set.titles=('设置',)
         except: acc_set.set_title(0,'设置')
         acc_set.selected_index=None
+        set_block=W.Box(
+            [acc_set],
+            layout=L(width=_ACCORDION_PANEL_WIDTH,
+                     padding='4px 6px',
+                     border='1px solid rgba(255,255,255,0.10)',
+                     border_radius='8px',
+                     background='rgba(255,255,255,0.02)'))
         self._w.update({'cookie':w_cookie,'save':w_save,
                         'maxmb':w_maxmb,'subtitle':w_subtitle,
                         'video':w_video,
@@ -2247,13 +2256,20 @@ class Dashboard:
              w_refresh,w_clear_p,w_clear_l],
             layout=L(margin='6px 0',flex_flow='row wrap',
                      align_items='center'))
+        btn_panel=W.Box(
+            [btn_row],
+            layout=L(width='100%',
+                     padding='4px 8px',
+                     border='1px solid rgba(255,255,255,0.10)',
+                     border_radius='8px',
+                     background='rgba(255,255,255,0.02)'))
 
         w_scroll=W.Box(
             [self._table.container],
             layout=L(width='100%',height='420px',overflow='hidden',
                       border='1px solid rgba(255,255,255,0.12)',
-                      border_radius='12px',
-                      box_shadow='0 10px 26px rgba(0,0,0,0.22)'))
+                      border_radius='8px',
+                      box_shadow='0 6px 16px rgba(0,0,0,0.18)'))
 
         def _sep(t):
             return W.HTML(
@@ -2267,13 +2283,20 @@ class Dashboard:
         try:    log_acc.titles=('日志',)
         except: log_acc.set_title(0,'日志')
         log_acc.selected_index=0
+        log_panel=W.Box(
+            [log_acc],
+            layout=L(width='100%',
+                     padding='3px 6px',
+                     border='1px solid rgba(255,255,255,0.10)',
+                     border_radius='8px',
+                     background='rgba(255,255,255,0.02)'))
 
         note=W.HTML(
             '<div style="font-size:11px;color:#cfd8dc;'
             'background:rgba(255,255,255,0.06);'
             'border:1px solid rgba(255,255,255,0.1);'
-            'border-radius:10px;padding:6px 10px;margin:4px 0;'
-            'box-shadow:0 8px 20px rgba(0,0,0,0.16);'
+            'border-radius:8px;padding:6px 10px;margin:4px 0;'
+            'box-shadow:0 4px 12px rgba(0,0,0,0.14);'
             'backdrop-filter:blur(7px)">'
             '支持：关键词 / 单URL / 多URL / 频道URL'
             '&nbsp;|&nbsp;[v]=已下载(默认不勾选)&nbsp;'
@@ -2297,15 +2320,15 @@ class Dashboard:
             _sep('搜索'),
             w_query,
             W.HBox([w_sort,W.HTML('&nbsp;'),w_count]),
-            panel_row,btn_row,note,
+            panel_row,btn_panel,note,
             self._status.widget(),
             _sep('预览'),
-            w_scroll,log_acc,
+            w_scroll,log_panel,
         ],layout=W.Layout(
              border='1px solid rgba(255,255,255,0.12)',
              padding='12px 14px',width='99%',
-             border_radius='14px',
-             box_shadow='0 14px 32px rgba(0,0,0,0.24)'))
+             border_radius='10px',
+             box_shadow='0 8px 20px rgba(0,0,0,0.20)'))
 
     # ── 搜索预览 ─────────────────────────────────────────────
     def _on_preview(self,query,sort,count,cookie,save,w_prev):
