@@ -1,9 +1,11 @@
 # YouTube
 
 快速入口：
-- `run_v331.py`（不依赖 `__file__`/`runpy` 的入口）
-- 根目录主文件：`yt_downloader_v331_final.py`（推荐直接使用）
-- 同步源码：`youtube/v1_yt_downloader_v331.py`
+- 根目录主文件：`yt_downloader.py`（唯一推荐入口）
+
+归档目录：
+- `archive/root-legacy/`：历史根目录入口文件
+- `archive/youtube-legacy/`：历史版本脚本与模块
 
 Cookie 约定：
 - 默认路径：`/content/drive/MyDrive/YouTube_Cookies/youtube_cookies.txt`
