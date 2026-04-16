@@ -2205,7 +2205,7 @@ class Dashboard:
         w_retry_failed=W.Button(
             description='失败重试',
             layout=L(width='82px'),
-            style={'button_color':'#9ec5fe','font_weight':'600'},
+            style={'button_color':'#5d6d7e','font_weight':'600'},
             tooltip='自动勾选当前预览里的失败项，并在本轮下载前清零失败计数')
         w_reset_idx=W.Checkbox(
             value=False,description='含索引',indent=False,
@@ -2759,16 +2759,22 @@ class Dashboard:
 
     def _on_retry_failed_prepare(self):
         failed = self._state.get_failed_map()
+        self._force_retry_once = False
         if not failed:
             self._log.write('失败重试：当前无失败记录')
             self._status.idle()
             self._flush_queue()
             return
-        failed_ids = set(failed.keys())
+        failed_ids = {vid for vid in failed.keys() if _is_valid_video_id(vid)}
+        if not failed_ids:
+            self._log.write('失败重试：失败记录中无有效视频ID')
+            self._status.error('无有效失败项')
+            self._flush_queue()
+            return
         cnt = self._table.set_selected_by_ids(failed_ids, value=True)
-        self._force_retry_once = True
         if cnt <= 0:
-            retry_items = _build_retry_items_from_failed_map(failed)
+            retry_items = _build_retry_items_from_failed_map(
+                {k: v for k, v in failed.items() if k in failed_ids})
             if not retry_items:
                 self._log.write('失败重试：失败记录中无有效视频ID')
                 self._status.error('无有效失败项')
@@ -2780,6 +2786,11 @@ class Dashboard:
             self._table.render(retry_items)
             self._last_results = retry_items
             cnt = self._table.set_selected_by_ids(failed_ids, value=True)
+            if cnt <= 0:
+                self._log.write('失败重试：重试列表生成成功，但未选中可下载项')
+                self._status.error('无可重试项')
+                self._flush_queue()
+                return
             self._log.write(f'失败重试：已生成重试列表并勾选 {cnt} 条，点击“下载”开始重试')
             self._status.idle()
             try: display(HTML(_DRAG_JS))
@@ -2787,6 +2798,7 @@ class Dashboard:
         else:
             self._log.write(f'失败重试：已勾选 {cnt} 条，点击“下载”开始重试')
             self._status.idle()
+        self._force_retry_once = True
         self._flush_queue()
 
     def _on_rebuild_index(self, save_dir, btn=None):
