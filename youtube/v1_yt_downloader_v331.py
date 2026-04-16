@@ -114,7 +114,7 @@ class Cfg:
     SEARCH_SOCKET_TIMEOUT = 10
     SEARCH_HARD_TIMEOUT   = 40
     SEARCH_FALLBACK_RATIO = 0.6
-    SUB_SPLIT_TOKENS      = 1200
+    SUB_SPLIT_TOKENS      = 1800
 
     @staticmethod
     def fix(p):
@@ -676,7 +676,7 @@ def _session_has_video_artifacts(session_dir, order, title, vid):
         return False
 
     pref = f'{int(order):02d}_'
-    exts = _VIDEO_EXTS | _THUMB_EXTS | _SUB_EXTS
+    exts = _VIDEO_EXTS
     try:
         for fn in os.listdir(session_dir):
             p = os.path.join(session_dir, fn)
@@ -2075,9 +2075,10 @@ class Dashboard:
                     '<span style="font-size:11px;color:#4caf50;'
                     'margin-left:6px">不限</span>')
             else:
+                cap=_fmt_size(v*(1<<20))
                 w_maxmb_label.value=(
                     f'<span style="font-size:11px;color:#ff9800;'
-                    f'margin-left:6px">上限 {v} MB</span>')
+                    f'margin-left:6px">上限 {cap}</span>')
         w_maxmb.observe(_upd_label,names='value')
 
         w_subtitle=W.Checkbox(
@@ -2121,12 +2122,12 @@ class Dashboard:
         w_reset_btn=W.Button(
             description='重置记录',button_style='warning',
             layout=L(width='76px'),
-            tooltip='清空下载记录（不删除文件）')
+            tooltip='清空下载/失败记录（不删除网盘文件）')
         w_rebuild_idx=W.Button(
             description='校验索引',
             layout=L(width='82px'),
             style={'button_color':'#5d6d7e','font_weight':'600'},
-            tooltip='按当前保存目录扫描索引_下载结果.json，校验并重建已存索引')
+            tooltip='按当前保存目录扫描索引_下载结果.json，仅按视频文件校验并重建索引')
         w_reset_idx=W.Checkbox(
             value=False,description='含索引',indent=False,
             layout=L(width='auto'),
@@ -2647,16 +2648,16 @@ class Dashboard:
             self._w['stop'].disabled   =True
             self._w['stop'].description='终止中'
         try:
-            self._status._w.value=_sb('stop','[]','正在终止...')
+            self._status._w.value=_sb('stop','[]','正在终止（当前分片后停止）...')
         except Exception: pass
-        self._log.write('[终止] 当前分片完成后停止')
+        self._log.write('[终止] 当前分片完成后停止（非强制秒停）')
         self._flush_queue()
 
     def _on_reset(self,clear_index=False):
         self._state.reset(clear_index=clear_index)
         self._table.clear()
         self._last_results=None
-        msg=('已清空记录'
+        msg=('已清空记录（不删除网盘文件）'
              +('（含索引）' if clear_index else ''))
         self._log.write(msg)
         self._status.idle()
