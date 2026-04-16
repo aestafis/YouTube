@@ -248,6 +248,23 @@ class VideoIndex:
 
     def get_all_ids(self): return set(self.load().keys())
 
+    def replace_all(self, videos_map):
+        with self._lock:
+            try:
+                self._ensure_path()
+                os.makedirs(os.path.dirname(self._path), exist_ok=True)
+                safe_map = (videos_map if isinstance(videos_map, dict)
+                            else {})
+                raw = {'updated': datetime.now().isoformat(),
+                       'videos': safe_map}
+                tmp = self._path + '.tmp'
+                with open(tmp, 'w', encoding='utf-8') as f:
+                    json.dump(raw, f, ensure_ascii=False, indent=2)
+                os.replace(tmp, self._path)
+                self._cache = dict(safe_map)
+            except Exception:
+                pass
+
 
 # ══════════════════════════════════════════════════════════════
 # BLOCK 3 ── State（延迟加载，B-1修复：只有成功才标记loaded）
@@ -309,6 +326,12 @@ class State:
 
     def get_dl_set(self):
         self._ensure_loaded(); return set(self._dl)
+
+    def replace_downloaded_ids(self, ids):
+        self._ensure_loaded()
+        self._dl = set(i for i in (ids or set()) if _is_valid_video_id(i))
+        self._fail = {k: v for k, v in self._fail.items() if k in self._dl}
+        self._save()
 
     def reset(self,clear_index=False):
         self._ensure_loaded()
@@ -644,6 +667,99 @@ def _parse_input(raw):
         if len(channels)>1: return 'channel_multi_warn',channels
         return 'channel',channels[0]
     return 'multi_url',urls
+
+_SUB_EXTS = frozenset({'.vtt', '.srt', '.ass', '.ssa', '.lrc', '.txt'})
+
+
+def _session_has_video_artifacts(session_dir, order, title, vid):
+    if not os.path.isdir(session_dir):
+        return False
+
+    pref = f'{int(order):02d}_'
+    exts = _VIDEO_EXTS | _THUMB_EXTS | _SUB_EXTS
+    try:
+        for fn in os.listdir(session_dir):
+            p = os.path.join(session_dir, fn)
+            if os.path.isfile(p):
+                if fn.startswith(pref) and os.path.splitext(fn)[1].lower() in exts:
+                    return True
+    except Exception:
+        pass
+
+    folder = os.path.join(
+        session_dir,
+        f'{int(order):02d}_{_safe_name_token(title, mx=40, fallback=vid)}')
+    if not os.path.isdir(folder):
+        return False
+    try:
+        for fn in os.listdir(folder):
+            p = os.path.join(folder, fn)
+            if os.path.isfile(p):
+                if os.path.splitext(fn)[1].lower() in exts:
+                    return True
+    except Exception:
+        pass
+    return False
+
+
+def _load_index_raw(path):
+    p = Cfg.fix(path)
+    try:
+        if os.path.exists(p):
+            with open(p, encoding='utf-8') as f:
+                d = json.load(f)
+            if isinstance(d, dict) and isinstance(d.get('videos'), dict):
+                return d
+    except Exception:
+        pass
+    return {'updated': '', 'videos': {}}
+
+
+def _rebuild_index_from_sessions(save_dir, index_path):
+    save_dir = Cfg.fix(save_dir)
+    old_raw = _load_index_raw(index_path)
+    old_videos = old_raw.get('videos', {}) or {}
+    rebuilt = {}
+    scanned_sessions = 0
+    scanned_videos = 0
+
+    for root, _dirs, files in os.walk(save_dir):
+        if '索引_下载结果.json' not in files:
+            continue
+        scanned_sessions += 1
+        jp = os.path.join(root, '索引_下载结果.json')
+        try:
+            with open(jp, encoding='utf-8') as f:
+                data = json.load(f)
+        except Exception:
+            continue
+        videos = data.get('videos', []) or []
+        for v in videos:
+            scanned_videos += 1
+            vid = (v.get('id') or '').strip()
+            if (not _is_valid_video_id(vid)) or (not v.get('done')):
+                continue
+            order = int(v.get('order') or 0)
+            title = str(v.get('title') or '').strip()
+            if order <= 0:
+                continue
+            if not _session_has_video_artifacts(root, order, title, vid):
+                continue
+            old = old_videos.get(vid, {}) if isinstance(old_videos, dict) else {}
+            rebuilt[vid] = {
+                'title': old.get('title') or title,
+                'channel': old.get('channel') or str(v.get('channel') or ''),
+                'saved_at': old.get('saved_at') or datetime.now().isoformat(),
+                'session': old.get('session') or os.path.basename(root),
+            }
+
+    return rebuilt, {
+        'sessions': scanned_sessions,
+        'videos': scanned_videos,
+        'kept': len(rebuilt),
+        'old': len(old_videos),
+        'dropped': max(0, len(old_videos) - len(rebuilt)),
+    }
 
 
 # ══════════════════════════════════════════════════════════════
@@ -2004,6 +2120,11 @@ class Dashboard:
             description='重置记录',button_style='warning',
             layout=L(width='76px'),
             tooltip='清空下载记录（不删除文件）')
+        w_rebuild_idx=W.Button(
+            description='校验索引',
+            layout=L(width='82px'),
+            style={'button_color':'#5d6d7e','font_weight':'600'},
+            tooltip='按当前保存目录扫描索引_下载结果.json，校验并重建已存索引')
         w_reset_idx=W.Checkbox(
             value=False,description='含索引',indent=False,
             layout=L(width='auto'),
@@ -2036,7 +2157,8 @@ class Dashboard:
                         w_split_tokens,W.HTML('&nbsp;&nbsp;'),
                         w_json_index],
                        layout=L(align_items='center')),
-                W.HBox([w_reset_btn,W.HTML('&nbsp;'),w_reset_idx],
+                W.HBox([w_reset_btn,W.HTML('&nbsp;'),w_reset_idx,
+                        W.HTML('&nbsp;&nbsp;'),w_rebuild_idx],
                        layout=L(align_items='center')),
             ],layout=L(padding='6px'))],
             layout=L(width=_ACCORDION_PANEL_WIDTH,margin='2px 0'))
@@ -2050,7 +2172,8 @@ class Dashboard:
                         'skip_saved':w_skip_saved,
                         'sub_split':w_sub_split,
                         'sub_split_tokens':w_split_tokens,
-                        'json_index':w_json_index})
+                        'json_index':w_json_index,
+                        'rebuild_idx':w_rebuild_idx})
 
         w_prev=W.Button(description='搜索',
                         layout=L(width='88px',height='34px'),
@@ -2102,6 +2225,9 @@ class Dashboard:
             self._flush_queue()
 
         w_refresh.on_click(_on_refresh)
+        w_rebuild_idx.on_click(
+            lambda _:self._on_rebuild_index(Cfg.fix(w_save.value.strip()),
+                                            w_rebuild_idx))
         w_prev.on_click(
             lambda _:self._on_preview(*_params(),w_prev))
         w_dl.on_click(
@@ -2512,6 +2638,59 @@ class Dashboard:
         self._log.write(msg)
         self._status.idle()
         self._flush_queue()
+
+    def _on_rebuild_index(self, save_dir, btn=None):
+        if self._dl_running:
+            self._log.write('下载进行中，暂不支持索引校验')
+            self._status.error('请等待下载结束后再校验索引')
+            self._flush_queue()
+            return
+        if btn is not None:
+            btn.disabled = True
+            btn.description = '校验中...'
+        self._log.write('开始校验索引（手动触发）...')
+        self._flush_queue()
+
+        def _run():
+            try:
+                ok, msg = _mount_drive()
+                if not ok:
+                    self._log.write(f'Drive: {msg}')
+                    self._status.error(f'Drive 挂载失败: {msg}')
+                    return
+                rebuilt, stats = _rebuild_index_from_sessions(
+                    save_dir, Cfg.INDEX)
+                rebuilt_ids = set(rebuilt.keys())
+                self._index.replace_all(rebuilt)
+                self._state.replace_downloaded_ids(rebuilt_ids)
+                self._log.write(
+                    f'索引校验完成: 会话{stats["sessions"]} 记录{stats["videos"]} '
+                    f'保留{stats["kept"]} 移除{stats["dropped"]}')
+
+                def _refresh_table():
+                    saved = (self._index.get_all_ids() |
+                             self._state.get_dl_set())
+                    self._table.set_saved_ids(saved)
+                    if (not self._dl_running) and self._table._items:
+                        self._table.render(list(self._table._items))
+                        try:
+                            display(HTML(_DRAG_JS))
+                        except Exception:
+                            pass
+                self._uiq.put_cb(_refresh_table)
+                self._status.idle()
+            except Exception as e:
+                self._log.write(f'索引校验异常: {type(e).__name__}: {e}')
+                self._status.error(f'索引校验异常: {type(e).__name__}')
+            finally:
+                def _restore_btn():
+                    if btn is not None:
+                        btn.disabled = False
+                        btn.description = '校验索引'
+                self._uiq.put_cb(_restore_btn)
+                self._auto_flush()
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def launch(self):
         ui=self._build()
