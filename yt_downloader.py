@@ -1281,6 +1281,28 @@ def _summarize_failed_map(failed_map):
         bucket[rs] = bucket.get(rs, 0) + max(1, c)
     return sorted(bucket.items(), key=lambda x: x[1], reverse=True)
 
+def _build_retry_items_from_failed_map(failed_map):
+    rows = []
+    for vid, rec in (failed_map or {}).items():
+        if not _is_valid_video_id(vid):
+            continue
+        rec = rec if isinstance(rec, dict) else {}
+        title = str(rec.get('title', '') or '').strip() or f'Failed video {vid}'
+        rows.append({
+            'id': vid,
+            'title': title,
+            'url': f'https://www.youtube.com/watch?v={vid}',
+            'channel': 'N/A',
+            'duration': 'N/A',
+            'dur_s': 0,
+            'view_count': None,
+            '_fail_count': int(rec.get('count') or 0),
+        })
+    rows.sort(key=lambda x: (-int(x.get('_fail_count') or 0), x.get('title', '')))
+    for r in rows:
+        r.pop('_fail_count', None)
+    return rows
+
 
 def _do_download(items, cookie_path, save_dir,
                  stop_ev, pause_ev, state, session_dir,
@@ -2183,7 +2205,7 @@ class Dashboard:
         w_retry_failed=W.Button(
             description='失败重试',
             layout=L(width='82px'),
-            style={'button_color':'#8e24aa','font_weight':'600'},
+            style={'button_color':'#9ec5fe','font_weight':'600'},
             tooltip='自动勾选当前预览里的失败项，并在本轮下载前清零失败计数')
         w_reset_idx=W.Checkbox(
             value=False,description='含索引',indent=False,
@@ -2746,8 +2768,22 @@ class Dashboard:
         cnt = self._table.set_selected_by_ids(failed_ids, value=True)
         self._force_retry_once = True
         if cnt <= 0:
-            self._log.write('失败重试：当前预览无匹配失败项，请先搜索/预览后再下载')
-            self._status.error('预览中无失败项')
+            retry_items = _build_retry_items_from_failed_map(failed)
+            if not retry_items:
+                self._log.write('失败重试：失败记录中无有效视频ID')
+                self._status.error('无有效失败项')
+                self._flush_queue()
+                return
+            saved = (self._index.get_all_ids() | self._state.get_dl_set())
+            self._table.set_saved_ids(saved)
+            self._table.set_downloading(False)
+            self._table.render(retry_items)
+            self._last_results = retry_items
+            cnt = self._table.set_selected_by_ids(failed_ids, value=True)
+            self._log.write(f'失败重试：已生成重试列表并勾选 {cnt} 条，点击“下载”开始重试')
+            self._status.idle()
+            try: display(HTML(_DRAG_JS))
+            except: pass
         else:
             self._log.write(f'失败重试：已勾选 {cnt} 条，点击“下载”开始重试')
             self._status.idle()
