@@ -324,6 +324,19 @@ class State:
         self._ensure_loaded()
         return self._fail.get(v,{}).get('count',0) < 3
 
+    def get_failed_map(self):
+        self._ensure_loaded()
+        return dict(self._fail)
+
+    def clear_failed(self, ids=None):
+        self._ensure_loaded()
+        if ids is None:
+            self._fail.clear()
+        else:
+            for vid in set(ids):
+                self._fail.pop(vid, None)
+        self._save()
+
     def get_dl_set(self):
         self._ensure_loaded(); return set(self._dl)
 
@@ -1242,6 +1255,32 @@ _SB_RE=re.compile(
 _VIDEO_EXTS=frozenset({'.mp4','.mkv','.webm','.m4v','.avi','.flv'})
 _THUMB_EXTS=frozenset({'.webp','.jpg','.jpeg','.png'})
 
+_FAIL_LABELS = {
+    '403': 'Cookie失效/权限受限',
+    '429': '请求过频/限流',
+    'dl_err': '下载错误',
+    'empty': '无有效输出',
+    'video_small': '视频文件异常偏小',
+    'output_missing': '输出缺失',
+    'yt_fail': 'yt-dlp失败',
+}
+
+def _classify_fail_reason(reason):
+    r = str(reason or '').strip()
+    if not r:
+        return '未知错误'
+    return _FAIL_LABELS.get(r, r[:42])
+
+def _summarize_failed_map(failed_map):
+    bucket = {}
+    for _vid, rec in (failed_map or {}).items():
+        if not isinstance(rec, dict):
+            continue
+        rs = _classify_fail_reason(rec.get('reason', ''))
+        c = int(rec.get('count') or 1)
+        bucket[rs] = bucket.get(rs, 0) + max(1, c)
+    return sorted(bucket.items(), key=lambda x: x[1], reverse=True)
+
 
 def _do_download(items, cookie_path, save_dir,
                  stop_ev, pause_ev, state, session_dir,
@@ -1852,6 +1891,18 @@ class PreviewTable:
         with self._cb_lock: indices=sorted(self._selected_set)
         return [self._items[i] for i in indices if i<len(self._items)]
 
+    def set_selected_by_ids(self, vid_ids, value=True):
+        ids = set(vid_ids or [])
+        if not ids:
+            return 0
+        changed = 0
+        for i, it in enumerate(self._items):
+            vid = it.get('id', '')
+            if vid and vid in ids and i < len(self._boxes):
+                self._boxes[i].value = bool(value)
+                changed += 1
+        return changed
+
     def mark(self,vid_id,status,reason=''):
         if not vid_id: return
         with self._pending_lock:
@@ -1905,6 +1956,7 @@ class Dashboard:
         self._cur_total        = 0
         self._last_results     = None
         self._dl_running       = False
+        self._force_retry_once = False
 
     def _register_callbacks(self):
         if not _IN_COLAB: return
@@ -2128,6 +2180,11 @@ class Dashboard:
             layout=L(width='82px'),
             style={'button_color':'#5d6d7e','font_weight':'600'},
             tooltip='按当前保存目录扫描索引_下载结果.json，仅按视频文件校验并重建索引')
+        w_retry_failed=W.Button(
+            description='失败重试',
+            layout=L(width='82px'),
+            style={'button_color':'#8e24aa','font_weight':'600'},
+            tooltip='自动勾选当前预览里的失败项，并在本轮下载前清零失败计数')
         w_reset_idx=W.Checkbox(
             value=False,description='含索引',indent=False,
             layout=L(width='auto'),
@@ -2161,7 +2218,8 @@ class Dashboard:
                         w_json_index],
                        layout=L(align_items='center')),
                 W.HBox([w_reset_btn,W.HTML('&nbsp;'),w_reset_idx,
-                        W.HTML('&nbsp;&nbsp;'),w_rebuild_idx],
+                        W.HTML('&nbsp;&nbsp;'),w_rebuild_idx,
+                        W.HTML('&nbsp;&nbsp;'),w_retry_failed],
                        layout=L(align_items='center')),
             ],layout=L(padding='6px'))],
             layout=L(width=_ACCORDION_PANEL_WIDTH,margin='2px 0'))
@@ -2180,10 +2238,11 @@ class Dashboard:
                         'video':w_video,
                         'thumb':w_thumb,'package':w_pack,
                         'skip_saved':w_skip_saved,
-                        'sub_split':w_sub_split,
-                        'sub_split_tokens':w_split_tokens,
-                        'json_index':w_json_index,
-                        'rebuild_idx':w_rebuild_idx})
+                         'sub_split':w_sub_split,
+                         'sub_split_tokens':w_split_tokens,
+                         'json_index':w_json_index,
+                         'rebuild_idx':w_rebuild_idx,
+                         'retry_failed':w_retry_failed})
 
         w_prev=W.Button(description='搜索',
                         layout=L(width='88px',height='34px'),
@@ -2238,6 +2297,7 @@ class Dashboard:
         w_rebuild_idx.on_click(
             lambda _:self._on_rebuild_index(Cfg.fix(w_save.value.strip()),
                                             w_rebuild_idx))
+        w_retry_failed.on_click(lambda _:self._on_retry_failed_prepare())
         w_prev.on_click(
             lambda _:self._on_preview(*_params(),w_prev))
         w_dl.on_click(
@@ -2576,6 +2636,13 @@ class Dashboard:
                     f'开始下载 {len(items)} 条视频 → {sd}')
                 self._auto_flush()
 
+                if self._force_retry_once:
+                    retry_ids = {x.get('id', '') for x in items if x.get('id', '')}
+                    if retry_ids:
+                        self._state.clear_failed(retry_ids)
+                        self._log.write(f'失败重试模式：已清零 {len(retry_ids)} 条失败计数')
+                    self._force_retry_once = False
+
                 done,fails,sw,done_ids,tb,elapsed,subtitle_parts=_do_download(
                     items,cookie_file,save,
                     stop_ev,pause_ev,
@@ -2603,6 +2670,11 @@ class Dashboard:
                         subtitle_parts=subtitle_parts)
                 if sw=='user_stop': self._status.stopped(done,fails)
                 else:               self._status.done(done,fails,tb,elapsed)
+
+                failed_sum = _summarize_failed_map(self._state.get_failed_map())
+                if failed_sum:
+                    top = ' | '.join([f'{k}:{v}' for k, v in failed_sum[:5]])
+                    self._log.write(f'失败分类汇总: {top}')
 
             except Exception:
                 self._log.write('下载崩溃:')
@@ -2661,6 +2733,24 @@ class Dashboard:
              +('（含索引）' if clear_index else ''))
         self._log.write(msg)
         self._status.idle()
+        self._flush_queue()
+
+    def _on_retry_failed_prepare(self):
+        failed = self._state.get_failed_map()
+        if not failed:
+            self._log.write('失败重试：当前无失败记录')
+            self._status.idle()
+            self._flush_queue()
+            return
+        failed_ids = set(failed.keys())
+        cnt = self._table.set_selected_by_ids(failed_ids, value=True)
+        self._force_retry_once = True
+        if cnt <= 0:
+            self._log.write('失败重试：当前预览无匹配失败项，请先搜索/预览后再下载')
+            self._status.error('预览中无失败项')
+        else:
+            self._log.write(f'失败重试：已勾选 {cnt} 条，点击“下载”开始重试')
+            self._status.idle()
         self._flush_queue()
 
     def _on_rebuild_index(self, save_dir, btn=None):
