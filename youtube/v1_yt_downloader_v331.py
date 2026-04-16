@@ -2105,7 +2105,7 @@ class Dashboard:
         package_on  =self._w['package'].value
         skip_saved  =self._w['skip_saved'].value
         if (not video_on) and (not subtitle_on) and (not thumb_on):
-            self._log.write('请至少勾选一个输出：视频 / 字幕 / 缩略图')
+            self._log.write('请至少勾选一个下载输出选项')
             self._status.error('无可下载输出')
             self._flush_queue(); return
         search_first=False
